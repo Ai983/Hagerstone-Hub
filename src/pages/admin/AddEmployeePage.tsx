@@ -9,7 +9,6 @@ import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import { Badge } from '../../components/ui/badge'
 import { Switch } from '../../components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
 import { ArrowLeft, Copy, Send, CheckCircle } from 'lucide-react'
@@ -58,7 +57,7 @@ export function AddEmployeePage() {
   const [createdTempPassword, setCreatedTempPassword] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const { register, handleSubmit, control, watch, setValue, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       role: 'site_engineer',
@@ -68,8 +67,6 @@ export function AddEmployeePage() {
       })),
     },
   })
-
-  const watchedRole = watch('role')
 
   const handleRoleChange = (role: RoleId) => {
     setValue('role', role)
