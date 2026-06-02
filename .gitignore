@@ -17,6 +17,17 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Auth import tool — contains bcrypt hashes and results, never commit
+auth-import-tool/
+
+# Operational runbooks — contain JWTs, project IDs, DB pooler hosts. Keep local.
+BACKUP_RUNBOOK.md
+HAGERSTONE_*.md
+
+# Database backups + n8n workflow JSON exports — production data & credentials
+backups/
+n8n_backups_*/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -3,14 +3,23 @@ import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
 import { ModuleCard } from '../components/ModuleCard'
 import { Button } from '../components/ui/button'
-import { Settings, LogOut } from 'lucide-react'
+import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { GamificationSection } from '../components/dashboard/GamificationSection'
+import { getPlacement } from '../lib/gamification'
+import { useDelegationPulse } from '../lib/delegation-scores'
+import { FounderAvatar } from '../components/FounderAvatar'
+
+const DELEGATION_ROLES = ['site_engineer', 'procurement', 'finance', 'mis']
 
 export function DashboardPage() {
   const { employee, isAdmin, signOut } = useAuth()
+  useDelegationPulse() // single realtime subscription for all delegation hooks on this page
   const { accessibleModules, loading } = useModules(employee?.id ?? null)
   const navigate = useNavigate()
+
+  const placement = getPlacement(employee?.role)
 
   const handleSignOut = async () => {
     await signOut()
@@ -62,6 +71,65 @@ export function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* My Points — all launch-role employees + founder/admin */}
+            {(DELEGATION_ROLES.includes(employee?.role ?? '') || employee?.role === 'founder' || isAdmin) && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/delegation/my-points')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <BarChart2 size={13} className="mr-1.5" />
+                  My Points
+                </Button>
+              </motion.div>
+            )}
+            {/* Delegation: My Day — all launch-role employees + founder/admin */}
+            {(DELEGATION_ROLES.includes(employee?.role ?? '') || employee?.role === 'founder' || isAdmin) && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/delegation/my-day')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <Sun size={13} className="mr-1.5" />
+                  Mera Din
+                </Button>
+              </motion.div>
+            )}
+            {/* Delegation: Verify Queue — heads + founder/admin */}
+            {(employee?.is_head || employee?.role === 'founder' || isAdmin) && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/delegation/verify')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <ClipboardList size={13} className="mr-1.5" />
+                  Verify Queue
+                </Button>
+              </motion.div>
+            )}
+            {(employee?.role === 'founder' || isAdmin) && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/founder')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <LineChart size={13} className="mr-1.5" />
+                  Founder Overview
+                </Button>
+              </motion.div>
+            )}
             {isAdmin && (
               <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                 <Button
@@ -108,6 +176,13 @@ export function DashboardPage() {
           </p>
         </motion.div>
 
+        {/* Gamification — top slot (procurement / finance / management) */}
+        {placement === 'top' && (
+          <div className="mb-8">
+            <GamificationSection />
+          </div>
+        )}
+
         {/* Module Grid */}
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -153,7 +228,17 @@ export function DashboardPage() {
             if you need access to additional modules.
           </p>
         </motion.div>
+
+        {/* Gamification — bottom slot (site engineers) */}
+        {placement === 'bottom' && (
+          <div className="mt-8">
+            <GamificationSection />
+          </div>
+        )}
       </main>
+
+      {/* Founder floating avatar — top-left corner, founder only */}
+      {employee?.role === 'founder' && <FounderAvatar />}
     </div>
   )
 }

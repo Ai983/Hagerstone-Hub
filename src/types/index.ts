@@ -6,6 +6,9 @@ export type RoleId =
   | 'hr'
   | 'project_manager'
   | 'site_engineer'
+  | 'ai'
+  | 'mis'
+  | 'founder'
 
 export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs'
 
@@ -26,6 +29,7 @@ export interface Employee {
   role: RoleId
   employee_code: string | null
   is_active: boolean
+  is_head: boolean
   must_change_password: boolean
   onboarded_at: string | null
   created_at: string
