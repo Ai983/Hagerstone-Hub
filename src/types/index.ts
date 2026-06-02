@@ -7,7 +7,7 @@ export type RoleId =
   | 'project_manager'
   | 'site_engineer'
 
-export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow'
+export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs'
 
 export interface Role {
   id: RoleId

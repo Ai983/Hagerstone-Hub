@@ -46,6 +46,16 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     borderColor: 'border-blue-400',
     icon: '👥',
   },
+  {
+    id: 'lcs',
+    name: 'Labour & Contractor (LCS)',
+    description: 'Contractors & daily-wage labour · Capture → AI verify → confirm → pay · Retention & audit',
+    // TODO: confirm/replace with the real LCS Vercel URL after first deploy.
+    url: 'https://hagerstone-lcs.vercel.app',
+    color: 'bg-amber-50',
+    borderColor: 'border-amber-500',
+    icon: '👷',
+  },
 ]
 
 export const getModule = (id: string) => MODULE_REGISTRY.find(m => m.id === id)

@@ -26,13 +26,13 @@ const ROLE_LABELS: Record<RoleId, string> = {
 }
 
 const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
-  admin:          ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  management:     ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  procurement:    ['attendance', 'cps', 'finance_employee'],
-  finance:        ['attendance', 'finance_admin', 'finance_employee'],
+  admin:          ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow', 'lcs'],
+  management:     ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow', 'lcs'],
+  procurement:    ['attendance', 'cps', 'finance_employee', 'lcs'],
+  finance:        ['attendance', 'finance_admin', 'finance_employee', 'lcs'],
   hr:             ['attendance', 'hireflow'],
-  project_manager:['attendance', 'cps', 'finance_employee'],
-  site_engineer:  ['attendance', 'finance_employee'],
+  project_manager:['attendance', 'cps', 'finance_employee', 'lcs'],
+  site_engineer:  ['attendance', 'finance_employee', 'lcs'],
 }
 
 const schema = z.object({
