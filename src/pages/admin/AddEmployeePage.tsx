@@ -23,6 +23,9 @@ const ROLE_LABELS: Record<RoleId, string> = {
   hr: 'HR',
   project_manager: 'Project Manager',
   site_engineer: 'Site Engineer',
+  ai: 'AI',
+  mis: 'MIS',
+  founder: 'Founder',
 }
 
 const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
@@ -33,6 +36,9 @@ const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
   hr:             ['attendance', 'hireflow'],
   project_manager:['attendance', 'cps', 'finance_employee'],
   site_engineer:  ['attendance', 'finance_employee'],
+  ai:             ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
+  mis:            ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
+  founder:        ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
 }
 
 const schema = z.object({
@@ -41,7 +47,7 @@ const schema = z.object({
   phone: z.string().optional(),
   designation: z.string().optional(),
   department: z.string().optional(),
-  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer']),
+  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'founder']),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
@@ -55,6 +61,7 @@ export function AddEmployeePage() {
   const queryClient = useQueryClient()
   const [createdEmployee, setCreatedEmployee] = useState<Employee | null>(null)
   const [createdTempPassword, setCreatedTempPassword] = useState<string | null>(null)
+  const [linkedExisting, setLinkedExisting] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<FormData>({
@@ -87,16 +94,25 @@ export function AddEmployeePage() {
           designation: data.designation || null,
           department: data.department || null,
           role: data.role,
-          module_access: data.module_access.filter(m => m.enabled).map(m => m.module_id),
         },
       })
       if (error) throw error
       if (result.error) throw new Error(result.error)
-      return result as { employee: Employee; temp_password: string }
+      const created = result as { employee: Employee; temp_password: string | null; linked_existing: boolean }
+
+      // Provision module access + cross-schema profile rows under the shared identity.
+      const { error: syncError } = await supabase.rpc('sync_module_access', {
+        p_employee_id: created.employee.id,
+        p_modules: data.module_access.map(m => ({ module_id: m.module_id, enabled: m.enabled })),
+      })
+      if (syncError) throw syncError
+
+      return created
     },
-    onSuccess: ({ employee, temp_password }) => {
+    onSuccess: ({ employee, temp_password, linked_existing }) => {
       setCreatedEmployee(employee)
       setCreatedTempPassword(temp_password)
+      setLinkedExisting(linked_existing)
       queryClient.invalidateQueries({ queryKey: ['employees'] })
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create employee'),
@@ -129,7 +145,7 @@ export function AddEmployeePage() {
     }
   }
 
-  if (createdEmployee && createdTempPassword) {
+  if (createdEmployee) {
     return (
       <div className="min-h-screen bg-amber-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
@@ -139,18 +155,29 @@ export function AddEmployeePage() {
           <h2 className="text-lg font-semibold text-stone-800 mb-1">Employee created!</h2>
           <p className="text-sm text-stone-500 mb-6">{createdEmployee.name} has been added to the Hub.</p>
 
-          <div className="bg-amber-50 rounded-xl p-4 mb-6 text-left">
-            <p className="text-xs text-stone-500 mb-1">Temporary password</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-sm font-mono text-stone-800 bg-white border border-gray-200 rounded px-3 py-2">
-                {createdTempPassword}
-              </code>
-              <Button variant="outline" size="sm" onClick={copyPassword}>
-                {copied ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
-              </Button>
+          {linkedExisting ? (
+            <div className="bg-emerald-50 rounded-xl p-4 mb-6 text-left">
+              <p className="text-sm font-medium text-emerald-800 mb-1">Linked to existing account</p>
+              <p className="text-xs text-stone-500">
+                This person already has a Hagerstone login (CPS / Expense). They sign in to the Hub
+                with their <span className="font-medium">existing email and password</span> — no new
+                password needed.
+              </p>
             </div>
-            <p className="text-xs text-stone-400 mt-2">Share this with the employee. They must change it on first login.</p>
-          </div>
+          ) : createdTempPassword ? (
+            <div className="bg-amber-50 rounded-xl p-4 mb-6 text-left">
+              <p className="text-xs text-stone-500 mb-1">Temporary password</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-sm font-mono text-stone-800 bg-white border border-gray-200 rounded px-3 py-2">
+                  {createdTempPassword}
+                </code>
+                <Button variant="outline" size="sm" onClick={copyPassword}>
+                  {copied ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                </Button>
+              </div>
+              <p className="text-xs text-stone-400 mt-2">Share this with the employee. They must change it on first login.</p>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <Button

@@ -198,7 +198,7 @@ export function useMyRecentPoints(authUserId: string | undefined, limit = 30) {
 export function useOrgDelegationFeed() {
   return useQuery({
     queryKey: FEED_KEY,
-    queryFn:  fetchOrgFeed,
+    queryFn:  () => fetchOrgFeed(40),
     staleTime: 5_000,
     refetchInterval: 60_000,
   })

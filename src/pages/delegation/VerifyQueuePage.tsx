@@ -57,7 +57,6 @@ function TaskRow({
   const isLoading = loading === task.id
 
   const assigneeName  = nameMap.get(task.assigned_to) ?? 'Unknown'
-  const pendingPoints = task.del_points?.[0]?.points ?? 0
   const pendingReason = task.del_points?.[0]?.reason ?? ''
 
   return (

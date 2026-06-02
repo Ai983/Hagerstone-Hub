@@ -23,6 +23,9 @@ const ROLE_LABELS: Record<RoleId, string> = {
   hr: 'HR',
   project_manager: 'Project Manager',
   site_engineer: 'Site Engineer',
+  ai: 'AI',
+  mis: 'MIS',
+  founder: 'Founder',
 }
 
 const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
@@ -33,6 +36,9 @@ const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
   hr:             ['attendance', 'hireflow'],
   project_manager:['attendance', 'cps', 'finance_employee', 'lcs'],
   site_engineer:  ['attendance', 'finance_employee', 'lcs'],
+  ai:             ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
+  mis:            ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
+  founder:        ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
 }
 
 const schema = z.object({
@@ -40,7 +46,7 @@ const schema = z.object({
   phone: z.string().optional(),
   designation: z.string().optional(),
   department: z.string().optional(),
-  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer']),
+  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'founder']),
   is_active: z.boolean(),
   module_access: z.array(z.object({
     module_id: z.string(),
@@ -133,14 +139,13 @@ export function EditEmployeePage() {
         .eq('id', id)
       if (empError) throw empError
 
-      for (const m of data.module_access) {
-        await supabase
-          .from('employee_module_access')
-          .upsert(
-            { employee_id: id, module_id: m.module_id, can_access: m.enabled },
-            { onConflict: 'employee_id,module_id' }
-          )
-      }
+      // Sync module flags AND provision/deactivate the user's CPS/Finance
+      // profile rows under their shared auth identity (same login everywhere).
+      const { error: syncError } = await supabase.rpc('sync_module_access', {
+        p_employee_id: id,
+        p_modules: data.module_access.map(m => ({ module_id: m.module_id, enabled: m.enabled })),
+      })
+      if (syncError) throw syncError
     },
     onSuccess: () => {
       toast.success('Employee updated successfully')

@@ -21,6 +21,9 @@ const ROLE_LABELS: Record<RoleId, string> = {
   hr: 'HR',
   project_manager: 'Project Manager',
   site_engineer: 'Site Engineer',
+  ai: 'AI',
+  mis: 'MIS',
+  founder: 'Founder',
 }
 
 export function EmployeesPage() {

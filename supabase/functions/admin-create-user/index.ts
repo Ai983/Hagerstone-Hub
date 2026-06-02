@@ -57,19 +57,56 @@ serve(async (req) => {
     })
   }
 
-  const { name, email, phone, designation, department, role, module_access } = await req.json()
+  const body = await req.json()
+  const { name, phone, designation, department, role } = body
+  const email = String(body.email ?? '').trim().toLowerCase()
 
-  const tempPassword = generateTempPassword()
+  if (!email) {
+    return new Response(JSON.stringify({ error: 'Email is required' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
 
-  // Create auth user
-  const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password: tempPassword,
-    email_confirm: true,
-  })
+  // Reuse an existing auth identity if this person already signs into CPS/Expense.
+  // This keeps ONE login (same email + password) across all modules.
+  const { data: existingAuthId } = await supabaseAdmin
+    .rpc('auth_user_id_by_email', { p_email: email })
 
-  if (createError) {
-    return new Response(JSON.stringify({ error: createError.message }), {
+  const linkedExisting = !!existingAuthId
+  let authUserId: string
+  let tempPassword: string | null = null
+
+  if (linkedExisting) {
+    authUserId = existingAuthId as string
+  } else {
+    tempPassword = generateTempPassword()
+    const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: true,
+    })
+    if (createError) {
+      return new Response(JSON.stringify({ error: createError.message }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+    authUserId = authData.user.id
+  }
+
+  // Guard against double-onboarding into the Hub.
+  const { data: dupEmp } = await supabaseAdmin
+    .from('employees')
+    .select('id')
+    .or(`auth_user_id.eq.${authUserId},email.eq.${email}`)
+    .maybeSingle()
+
+  if (dupEmp) {
+    // Only clean up an auth user we created in THIS request; never delete an
+    // existing CPS/Expense identity.
+    if (!linkedExisting) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId)
+    }
+    return new Response(JSON.stringify({ error: 'An employee with this email already exists in the Hub' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   }
@@ -81,11 +118,11 @@ serve(async (req) => {
 
   const employeeCode = `HAG-${String((count ?? 0) + 1).padStart(3, '0')}`
 
-  // Insert employee record
+  // Insert Hub identity. Existing users keep their current password (no forced change).
   const { data: emp, error: empError } = await supabaseAdmin
     .from('employees')
     .insert({
-      auth_user_id: authData.user.id,
+      auth_user_id: authUserId,
       name,
       email,
       phone: phone || null,
@@ -93,32 +130,24 @@ serve(async (req) => {
       department: department || null,
       role,
       employee_code: employeeCode,
-      must_change_password: true,
+      must_change_password: false,
     })
     .select()
     .single()
 
   if (empError) {
-    // Rollback auth user
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    if (!linkedExisting) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId)
+    }
     return new Response(JSON.stringify({ error: empError.message }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   }
 
-  // Insert module access
-  if (module_access && module_access.length > 0) {
-    await supabaseAdmin.from('employee_module_access').insert(
-      module_access.map((moduleId: string) => ({
-        employee_id: emp.id,
-        module_id: moduleId,
-        can_access: true,
-      }))
-    )
-  }
-
+  // Module access + cross-schema provisioning is handled by the caller via the
+  // sync_module_access RPC, so create and edit share one code path.
   return new Response(
-    JSON.stringify({ employee: emp, temp_password: tempPassword }),
+    JSON.stringify({ employee: emp, temp_password: tempPassword, linked_existing: linkedExisting }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   )
 })

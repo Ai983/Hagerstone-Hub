@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Star } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
-import { useGamification, type GamificationGroup } from '../../lib/gamification'
+import { useGamification } from '../../lib/gamification'
 import { useMyRecentPoints, useDelegationScores, type DelegationPeriod } from '../../lib/delegation-scores'
 import type { DelPoint } from '../../types/delegation'
 
@@ -87,7 +87,6 @@ export function MyPointsPage() {
 
   // My scores across all sources
   const myDelScore = scores.find((s) => s.user_id === authUserId)
-  const myCpsTotal = gamPayload?.me?.total ?? 0
   const groupSize  = scores.filter((s) => s.role_group === roleGroup).length
   const delRank    = myDelScore?.rank ?? null
 
