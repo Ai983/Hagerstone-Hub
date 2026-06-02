@@ -22,7 +22,7 @@ export function FounderAvatar() {
   const imgRef    = useRef<HTMLImageElement | null>(null)
   const lidRef    = useRef(0)                        // 0 = open, 1 = closed
   const rafRef    = useRef(0)
-  const timerRef  = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef  = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Framer Motion values
   const mouseX  = useMotionValue(0)
