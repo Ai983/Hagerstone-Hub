@@ -1,5 +1,15 @@
 export type EffortTier = 'S' | 'M' | 'L' | 'XL'
-export type DelTaskStatus = 'assigned' | 'in_progress' | 'submitted' | 'verified' | 'rejected'
+
+export type DelTaskStatus =
+  | 'assigned'
+  | 'in_progress'
+  | 'submitted'
+  | 'under_review'
+  | 'completed'
+  | 'verified'   // legacy — treat same as completed in UI
+  | 'rejected'
+  | 'cancelled'
+
 export type DelPointStatus = 'pending' | 'verified' | 'rejected' | 'reversed'
 
 export interface DelTaskType {
@@ -10,6 +20,26 @@ export interface DelTaskType {
   effort_tier: EffortTier
   daily_cap: number | null
   active: boolean
+  scored_by: 'agent' | 'external'
+}
+
+export interface DelSubmission {
+  id: string
+  task_id: string
+  submitted_by: string
+  input_type: 'audio' | 'text'
+  raw_text: string | null
+  audio_url: string | null
+  transcript_status: 'pending' | 'done' | 'failed' | 'n/a'
+  attachments: { url: string; type: string; name: string; size: number }[]
+  created_at: string
+}
+
+export interface AgentMeta {
+  confidence: 'high' | 'medium' | 'low'
+  flags: string[]
+  reasoning: string
+  model: string
 }
 
 export interface DelPoint {
@@ -26,6 +56,11 @@ export interface DelPoint {
   period_month: string | null
   awarded_at: string
   verified_at: string | null
+  // V2 AI-scoring fields
+  submission_id: string | null
+  proposed_points: number | null
+  summary: string | null
+  agent_meta: AgentMeta | null
 }
 
 export interface DelTask {
@@ -46,4 +81,5 @@ export interface DelTask {
   created_at: string
   updated_at: string
   del_points?: DelPoint[]
+  del_submissions?: DelSubmission[]
 }

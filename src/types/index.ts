@@ -8,9 +8,13 @@ export type RoleId =
   | 'site_engineer'
   | 'ai'
   | 'mis'
+  | 'design'
+  | 'ea'
+  | 'sales'
+  | 'crm'
   | 'founder'
 
-export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs'
+export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs' | 'marketing'
 
 export interface Role {
   id: RoleId

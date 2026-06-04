@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { DelTask, DelTaskType } from '../types/delegation'
+import type { DelTask, DelTaskType, DelSubmission } from '../types/delegation'
 import type { Employee } from '../types'
 
 // ── Task types ────────────────────────────────────────────────────────────────
@@ -15,12 +15,23 @@ export async function fetchTaskTypes(roleGroup: string): Promise<DelTaskType[]> 
   return data ?? []
 }
 
+export async function fetchAllTaskTypes(): Promise<DelTaskType[]> {
+  const { data, error } = await supabase
+    .from('del_task_types')
+    .select('*')
+    .eq('active', true)
+    .order('role_group')
+    .order('effort_tier')
+  if (error) throw error
+  return data ?? []
+}
+
 // ── My tasks ──────────────────────────────────────────────────────────────────
 
 export async function fetchMyTasks(authUserId: string): Promise<DelTask[]> {
   const { data, error } = await supabase
     .from('del_tasks')
-    .select('*, del_points(id, points, reason, status, awarded_at)')
+    .select('*, del_points(id, points, proposed_points, summary, agent_meta, reason, status, awarded_at)')
     .eq('assigned_to', authUserId)
     .order('task_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -51,13 +62,17 @@ export async function fetchAllActiveEmployees(): Promise<Employee[]> {
   return (data ?? []) as Employee[]
 }
 
-// ── Submitted tasks (verify queue) ────────────────────────────────────────────
+// ── Verify queue (tasks awaiting head review — under_review status) ────────────
 
 export async function fetchSubmittedTasks(roleGroup: string | null): Promise<DelTask[]> {
   let q = supabase
     .from('del_tasks')
-    .select('*, del_points(id, points, reason, status, awarded_at)')
-    .eq('status', 'submitted')
+    .select(`
+      *,
+      del_points(id, points, proposed_points, summary, agent_meta, reason, status, awarded_at),
+      del_submissions(id, raw_text, attachments, input_type, created_at)
+    `)
+    .in('status', ['under_review', 'submitted'])
     .order('submitted_at', { ascending: true })
 
   if (roleGroup) q = q.eq('role_group', roleGroup)
@@ -79,17 +94,33 @@ export interface CreateTaskInput {
   assigned_by: string   // auth.users.id
 }
 
-export async function createTask(input: CreateTaskInput): Promise<void> {
-  const { error } = await supabase.from('del_tasks').insert({
-    title:       input.title.trim(),
-    description: input.description.trim() || null,
-    type_code:   input.type_code || null,
-    task_date:   input.task_date,
-    role_group:  input.role_group,
-    assigned_to: input.assigned_to,
-    assigned_by: input.assigned_by,
-  })
+export async function createTask(input: CreateTaskInput): Promise<string> {
+  const { data, error } = await supabase
+    .from('del_tasks')
+    .insert({
+      title:       input.title.trim(),
+      description: input.description.trim() || null,
+      type_code:   input.type_code || null,
+      task_date:   input.task_date,
+      role_group:  input.role_group,
+      assigned_to: input.assigned_to,
+      assigned_by: input.assigned_by,
+    })
+    .select('id')
+    .single()
   if (error) throw error
+
+  const taskId = data.id as string
+
+  // Head/founder assigning to someone else → fire WhatsApp notification (SPEC §6).
+  // Self-assigned tasks are skipped server-side. Best-effort; never blocks creation.
+  if (input.assigned_to !== input.assigned_by) {
+    supabase.functions
+      .invoke('del-notify-assign', { body: { task_id: taskId } })
+      .catch(() => { /* notification is best-effort */ })
+  }
+
+  return taskId
 }
 
 export async function moveToInProgress(taskId: string): Promise<void> {
@@ -100,25 +131,88 @@ export async function moveToInProgress(taskId: string): Promise<void> {
   if (error) throw error
 }
 
-// ── Edge Function calls ───────────────────────────────────────────────────────
-
-export async function submitTask(taskId: string): Promise<{ points: number; reason: string }> {
-  const { data, error } = await supabase.functions.invoke('del-submit-task', {
-    body: { task_id: taskId },
-  })
-  if (error) throw new Error(error.message)
-  if (data?.error) throw new Error(data.error)
-  return data as { points: number; reason: string }
+export async function cancelTask(taskId: string, reason: string): Promise<void> {
+  const { error } = await supabase
+    .from('del_tasks')
+    .update({
+      status: 'cancelled',
+      reject_reason: reason.trim(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId)
+  if (error) throw error
 }
 
-export async function verifyTask(
-  taskId: string,
-  decision: 'approve' | 'reject',
-  rejectReason?: string,
-): Promise<void> {
-  const { data, error } = await supabase.functions.invoke('del-verify-task', {
-    body: { task_id: taskId, decision, reject_reason: rejectReason },
+// ── Edge Function calls ───────────────────────────────────────────────────────
+
+export interface SubmitTaskInput {
+  task_id: string
+  text: string
+  attachments?: { url: string; type: string; name: string; size: number }[]
+}
+
+export async function submitTask(
+  input: SubmitTaskInput,
+): Promise<{ submission_id: string; message: string }> {
+  const { data, error } = await supabase.functions.invoke('del-submit-task', {
+    body: input,
   })
   if (error) throw new Error(error.message)
   if (data?.error) throw new Error(data.error)
+  return data as { submission_id: string; message: string }
+}
+
+export interface VerifyTaskInput {
+  task_id: string
+  decision: 'approve' | 'adjust' | 'reject'
+  final_points?: number   // required when decision = 'adjust'
+  reject_reason?: string  // required when decision = 'reject'
+}
+
+export async function verifyTask(input: VerifyTaskInput): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('del-verify-task', {
+    body: input,
+  })
+  if (error) throw new Error(error.message)
+  if (data?.error) throw new Error(data.error)
+}
+
+// ── Upload attachment to Supabase Storage ─────────────────────────────────────
+
+export async function uploadAttachment(
+  taskId: string,
+  file: File,
+): Promise<{ url: string; type: string; name: string; size: number }> {
+  const ext = file.name.split('.').pop() ?? 'bin'
+  const uuid = crypto.randomUUID()
+  const path = `task/${taskId}/${uuid}-${file.name}`
+
+  const { error: uploadErr } = await supabase.storage
+    .from('delegation-uploads')
+    .upload(path, file, { contentType: file.type })
+
+  if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
+
+  const { data: urlData } = supabase.storage
+    .from('delegation-uploads')
+    .getPublicUrl(path)
+
+  return {
+    url: urlData.publicUrl || path,
+    type: file.type || ext,
+    name: file.name,
+    size: file.size,
+  }
+}
+
+export async function fetchSubmission(taskId: string): Promise<DelSubmission | null> {
+  const { data, error } = await supabase
+    .from('del_submissions')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data as DelSubmission | null
 }

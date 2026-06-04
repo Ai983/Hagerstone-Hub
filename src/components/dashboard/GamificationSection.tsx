@@ -13,7 +13,12 @@ import {
   usePointsSeenNotification,
 } from '../../lib/delegation-scores'
 
-const DELEGATION_LAUNCH_ROLES = ['site_engineer', 'procurement', 'finance', 'mis']
+// All active employees participate in delegation — role gates are task-type level, not UI level
+const DELEGATION_LAUNCH_ROLES = [
+  'site_engineer', 'procurement', 'finance', 'mis',
+  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager',
+  'lcs', 'admin', 'founder',
+]
 
 export function GamificationSection() {
   const { employee } = useAuth()

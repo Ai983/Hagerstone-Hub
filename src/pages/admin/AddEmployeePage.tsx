@@ -25,6 +25,10 @@ const ROLE_LABELS: Record<RoleId, string> = {
   site_engineer: 'Site Engineer',
   ai: 'AI',
   mis: 'MIS',
+  design: 'Design',
+  ea: 'Executive Assistant',
+  sales: 'Sales',
+  crm: 'CRM',
   founder: 'Founder',
 }
 
@@ -38,6 +42,10 @@ const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
   site_engineer:  ['attendance', 'finance_employee'],
   ai:             ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
   mis:            ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
+  design:         ['attendance'],
+  ea:             ['attendance'],
+  sales:          ['attendance'],
+  crm:            ['attendance'],
   founder:        ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
 }
 
@@ -47,7 +55,7 @@ const schema = z.object({
   phone: z.string().optional(),
   designation: z.string().optional(),
   department: z.string().optional(),
-  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'founder']),
+  role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
