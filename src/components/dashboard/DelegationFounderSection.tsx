@@ -11,12 +11,22 @@ import {
 } from '../../lib/delegation-scores'
 import { DelegationLeaderboard } from './DelegationLeaderboard'
 
-const LAUNCH_ROLES = ['site_engineer', 'procurement', 'finance', 'mis']
+const LAUNCH_ROLES = [
+  'site_engineer', 'procurement', 'finance', 'mis',
+  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager', 'lcs',
+]
 const ROLE_LABELS: Record<string, string> = {
-  site_engineer: 'Site Eng.',
-  procurement:   'Procurement',
-  finance:       'Finance',
-  mis:           'MIS',
+  site_engineer:   'Site Eng.',
+  procurement:     'Procurement',
+  finance:         'Finance',
+  mis:             'MIS',
+  marketing:       'Marketing',
+  facade:          'Facade',
+  ai:              'AI',
+  hr:              'HR',
+  management:      'Management',
+  project_manager: 'Projects',
+  lcs:             'LCS',
 }
 
 function fmtDateTime(s: string) {

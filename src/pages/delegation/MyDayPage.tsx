@@ -1,18 +1,24 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Plus, X, CheckCircle2, Clock, AlertCircle, Loader2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  ArrowLeft, Plus, X, CheckCircle2, Clock, AlertCircle, Loader2,
+  Paperclip, Send, ChevronRight,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '../../hooks/useAuth'
 import {
   fetchMyTasks,
   fetchTaskTypes,
+  fetchAllTaskTypes,
   fetchTeamMembers,
   fetchAllActiveEmployees,
   createTask,
   moveToInProgress,
   submitTask,
+  uploadAttachment,
+  cancelTask,
 } from '../../lib/delegation'
 import type { DelTask, DelTaskType, DelTaskStatus } from '../../types/delegation'
 import type { Employee } from '../../types'
@@ -20,10 +26,24 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 
-// Roles that have seeded task types in this launch
-const LAUNCH_ROLES = ['site_engineer', 'procurement', 'finance', 'mis']
+// All roles can access delegation — the task type dropdown controls what tasks are available
+const LAUNCH_ROLES = [
+  'site_engineer', 'procurement', 'finance', 'mis',
+  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager',
+  'lcs', 'admin', 'founder',
+]
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+]
+const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20 MB
 
 function today(): string {
   return new Date().toISOString().slice(0, 10)
@@ -35,17 +55,34 @@ function fmtDate(s: string) {
   })
 }
 
+// V2 status → display label (Hinglish-friendly)
+function statusLabel(status: DelTaskStatus): string {
+  switch (status) {
+    case 'assigned':    return 'Naya Kaam'
+    case 'in_progress': return 'Chal Raha Hai'
+    case 'submitted':
+    case 'under_review': return 'Review Mein'
+    case 'completed':
+    case 'verified':    return 'Ho Gaya ✅'
+    case 'rejected':    return 'Wapas Aaya'
+    case 'cancelled':   return 'Cancel'
+    default:            return status
+  }
+}
+
 function pointBadge(task: DelTask) {
   const pt = task.del_points?.[0]
   if (!pt) return null
   const color =
-    pt.status === 'verified'  ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
-    pt.status === 'rejected'  ? 'text-red-500 bg-red-50 border-red-200 line-through' :
+    pt.status === 'verified' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+    pt.status === 'rejected' ? 'text-red-500 bg-red-50 border-red-200 line-through' :
     'text-stone-400 bg-stone-50 border-stone-200'
   const label =
     pt.status === 'verified' ? `+${pt.points} pts ✓` :
     pt.status === 'rejected' ? `0 pts ✗` :
-    `+${pt.points} pts (pending)`
+    pt.proposed_points !== null && pt.proposed_points !== undefined
+      ? `~${pt.proposed_points} pts (AI, pending)`
+      : `+${pt.points} pts (pending)`
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${color}`}>
       {label}
@@ -53,32 +90,267 @@ function pointBadge(task: DelTask) {
   )
 }
 
-// ── Column config ─────────────────────────────────────────────────────────────
+// ── Column config (4 visible: To Do | Doing | Sent for Review | Done) ─────────
 
-const COLUMNS: { status: DelTaskStatus; label: string; accent: string; border: string }[] = [
-  { status: 'assigned',   label: 'Assigned',   accent: 'bg-amber-50',   border: 'border-amber-200' },
-  { status: 'in_progress', label: 'In Progress', accent: 'bg-sky-50',  border: 'border-sky-200'  },
-  { status: 'submitted',  label: 'Submitted',  accent: 'bg-violet-50', border: 'border-violet-200' },
-  { status: 'verified',   label: 'Done',        accent: 'bg-stone-50', border: 'border-stone-200' },
+interface ColConfig {
+  key: string
+  label: string
+  sub: string
+  accent: string
+  border: string
+  statuses: DelTaskStatus[]
+}
+
+const COLUMNS: ColConfig[] = [
+  {
+    key: 'todo',
+    label: 'To Do',
+    sub: 'Naya Kaam',
+    accent: 'bg-amber-50',
+    border: 'border-amber-200',
+    statuses: ['assigned'],
+  },
+  {
+    key: 'doing',
+    label: 'Doing',
+    sub: 'Chal Raha Hai',
+    accent: 'bg-sky-50',
+    border: 'border-sky-200',
+    statuses: ['in_progress'],
+  },
+  {
+    key: 'review',
+    label: 'Sent for Review',
+    sub: 'Review Mein',
+    accent: 'bg-violet-50',
+    border: 'border-violet-200',
+    statuses: ['submitted', 'under_review'],
+  },
+  {
+    key: 'done',
+    label: 'Done',
+    sub: 'Ho Gaya',
+    accent: 'bg-stone-50',
+    border: 'border-stone-200',
+    statuses: ['completed', 'verified', 'rejected', 'cancelled'],
+  },
 ]
+
+// ── Submit modal ──────────────────────────────────────────────────────────────
+
+interface SubmitModalProps {
+  task: DelTask
+  onClose: () => void
+  onSubmitted: () => void
+}
+
+function SubmitModal({ task, onClose, onSubmitted }: SubmitModalProps) {
+  const [text, setText]             = useState('')
+  const [files, setFiles]           = useState<File[]>([])
+  const [uploading, setUploading]   = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const fileRef                     = useRef<HTMLInputElement>(null)
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? [])
+    const valid  = picked.filter((f) => {
+      if (!ALLOWED_TYPES.includes(f.type)) {
+        toast.error(`${f.name}: type not allowed (PDF, Excel, PPT, JPG, PNG only)`)
+        return false
+      }
+      if (f.size > MAX_FILE_SIZE) {
+        toast.error(`${f.name}: max 20 MB`)
+        return false
+      }
+      return true
+    })
+    setFiles((prev) => [...prev, ...valid])
+    e.target.value = ''
+  }
+
+  function removeFile(i: number) {
+    setFiles((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!text.trim()) return
+
+    setSaving(true)
+    setUploading(files.length > 0)
+
+    try {
+      // Upload attachments first
+      const uploadedAttachments = await Promise.all(
+        files.map((f) => uploadAttachment(task.id, f)),
+      )
+      setUploading(false)
+
+      await submitTask({
+        task_id: task.id,
+        text: text.trim(),
+        attachments: uploadedAttachments,
+      })
+
+      toast.success('Kaam submit ho gaya! AI scoring chal raha hai…')
+      onSubmitted()
+      onClose()
+    } catch (err: unknown) {
+      setUploading(false)
+      toast.error(err instanceof Error ? err.message : 'Submit failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const busy = saving || uploading
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 w-full sm:max-w-lg"
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 pt-5 pb-3">
+          <div className="flex-1 min-w-0 pr-3">
+            <p className="text-xs text-stone-400 mb-0.5">Kaam kya kiya?</p>
+            <p className="font-semibold text-stone-800 text-sm leading-snug line-clamp-2">{task.title}</p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="shrink-0 text-stone-400 hover:text-stone-600 p-1 -mr-1 mt-0.5 rounded-lg"
+          >
+            <X size={17} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-5 pb-5 space-y-3">
+          {/* Text area — primary input (STT deferred) */}
+          <div>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Aaj kya kiya likho — jitna detail ho sake utna likho…"
+              rows={5}
+              disabled={busy}
+              className="w-full text-sm rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[120px] transition-all"
+              required
+            />
+            <p className="text-xs text-stone-400 mt-1">
+              Jo kaam kiya uski details likho — AI isko padh ke score suggest karega
+            </p>
+          </div>
+
+          {/* File attachments */}
+          <div>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              className="flex items-center gap-2 text-xs text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors font-medium min-h-[44px]"
+            >
+              <Paperclip size={14} />
+              📎 Files Attach Karo (PDF, Excel, PPT, Image)
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept=".pdf,.xlsx,.xls,.pptx,.ppt,.png,.jpg,.jpeg"
+              className="hidden"
+              onChange={handleFileChange}
+              disabled={busy}
+            />
+
+            {files.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-stone-50 border border-stone-100 rounded-lg px-3 py-1.5">
+                    <Paperclip size={12} className="text-stone-400 shrink-0" />
+                    <span className="text-xs text-stone-700 flex-1 truncate">{f.name}</span>
+                    <span className="text-xs text-stone-400 shrink-0">
+                      {(f.size / 1024).toFixed(0)} KB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      disabled={busy}
+                      className="text-stone-300 hover:text-red-400"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={busy}
+              className="flex-1 text-sm h-11"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy || !text.trim()}
+              className="flex-1 text-sm h-11 bg-amber-700 hover:bg-amber-800 text-white font-medium"
+            >
+              {uploading ? (
+                <><Loader2 size={14} className="animate-spin mr-2" /> Files upload…</>
+              ) : saving ? (
+                <><Loader2 size={14} className="animate-spin mr-2" /> Submit…</>
+              ) : (
+                <><Send size={14} className="mr-2" /> Submit Karo</>
+              )}
+            </Button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
 
 // ── Task card ─────────────────────────────────────────────────────────────────
 
 function TaskCard({
   task,
   taskTypes,
+  isHead,
   onInProgress,
   onSubmit,
+  onCancel,
   actionLoading,
 }: {
   task: DelTask
   taskTypes: DelTaskType[]
+  isHead: boolean
   onInProgress: (id: string) => void
-  onSubmit: (id: string) => void
+  onSubmit: (task: DelTask) => void
+  onCancel: (task: DelTask) => void
   actionLoading: string | null
 }) {
   const typeLabel = taskTypes.find((t) => t.code === task.type_code)?.label ?? task.type_code ?? '—'
-  const loading = actionLoading === task.id
+  const loading   = actionLoading === task.id
+  const pt        = task.del_points?.[0]
+  const isDone    = task.status === 'completed' || task.status === 'verified'
+  const isReview  = task.status === 'submitted' || task.status === 'under_review'
 
   return (
     <motion.div
@@ -90,11 +362,18 @@ function TaskCard({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-stone-800 leading-snug">{task.title}</p>
-        <span className="text-xs text-stone-400 whitespace-nowrap">{fmtDate(task.task_date)}</span>
+        <span className="text-xs text-stone-400 whitespace-nowrap shrink-0">{fmtDate(task.task_date)}</span>
       </div>
 
       {task.description && (
         <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">{task.description}</p>
+      )}
+
+      {/* AI summary (shown when under_review / completed) */}
+      {(isReview || isDone) && pt?.summary && (
+        <div className="text-xs text-stone-600 bg-amber-50/60 border border-amber-100 rounded-lg px-2.5 py-2 leading-relaxed">
+          <span className="font-medium text-amber-800">AI: </span>{pt.summary}
+        </div>
       )}
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -105,59 +384,145 @@ function TaskCard({
       </div>
 
       {task.status === 'rejected' && task.reject_reason && (
-        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-2 py-1">
-          Rejected: {task.reject_reason}
+        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
+          ↩ {task.reject_reason}
         </p>
       )}
 
-      <div className="flex gap-1.5 pt-1">
+      {task.status === 'cancelled' && task.reject_reason && (
+        <p className="text-xs text-stone-400 bg-stone-50 border border-stone-100 rounded-lg px-2 py-1.5">
+          Cancel: {task.reject_reason}
+        </p>
+      )}
+
+      {/* Action buttons — min-h 44px for mobile */}
+      <div className="flex gap-1.5 pt-1 flex-wrap">
         {task.status === 'assigned' && (
           <>
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs border-sky-200 text-sky-700 hover:bg-sky-50"
+              className="h-11 text-xs border-sky-200 text-sky-700 hover:bg-sky-50 flex-1"
               disabled={loading}
               onClick={() => onInProgress(task.id)}
             >
-              {loading ? <Loader2 size={12} className="animate-spin" /> : 'In Progress'}
+              {loading ? <Loader2 size={12} className="animate-spin" /> : 'Shuru Karo'}
             </Button>
             <Button
               size="sm"
-              className="h-7 text-xs bg-amber-700 hover:bg-amber-800 text-white"
+              className="h-11 text-xs bg-amber-700 hover:bg-amber-800 text-white flex-1"
               disabled={loading}
-              onClick={() => onSubmit(task.id)}
+              onClick={() => onSubmit(task)}
             >
-              {loading ? <Loader2 size={12} className="animate-spin" /> : 'Submit'}
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} className="mr-1" />Submit</>}
             </Button>
+            {isHead && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-11 text-xs border-stone-200 text-stone-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50"
+                disabled={loading}
+                onClick={() => onCancel(task)}
+              >
+                <X size={12} />
+              </Button>
+            )}
           </>
         )}
         {task.status === 'in_progress' && (
-          <Button
-            size="sm"
-            className="h-7 text-xs bg-amber-700 hover:bg-amber-800 text-white"
-            disabled={loading}
-            onClick={() => onSubmit(task.id)}
-          >
-            {loading ? <Loader2 size={12} className="animate-spin" /> : 'Submit EOD'}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              className="h-11 text-xs bg-amber-700 hover:bg-amber-800 text-white flex-1"
+              disabled={loading}
+              onClick={() => onSubmit(task)}
+            >
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} className="mr-1" />EOD Submit</>}
+            </Button>
+            {isHead && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-11 text-xs border-stone-200 text-stone-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50"
+                disabled={loading}
+                onClick={() => onCancel(task)}
+              >
+                <X size={12} />
+              </Button>
+            )}
+          </>
         )}
         {task.status === 'submitted' && (
-          <span className="text-xs text-violet-600 flex items-center gap-1">
-            <Clock size={12} /> Awaiting Head verification
+          <span className="text-xs text-violet-500 flex items-center gap-1 py-1">
+            <Loader2 size={11} className="animate-spin" /> AI scoring…
           </span>
         )}
-        {task.status === 'verified' && (
-          <span className="text-xs text-emerald-600 flex items-center gap-1">
-            <CheckCircle2 size={12} /> Verified
+        {task.status === 'under_review' && (
+          <span className="text-xs text-violet-600 flex items-center gap-1 py-1">
+            <Clock size={11} /> Head review mein hai
+          </span>
+        )}
+        {isDone && (
+          <span className="text-xs text-emerald-600 flex items-center gap-1 py-1">
+            <CheckCircle2 size={11} /> Ho Gaya
           </span>
         )}
         {task.status === 'rejected' && (
-          <span className="text-xs text-red-500 flex items-center gap-1">
-            <AlertCircle size={12} /> Rejected
+          <span className="text-xs text-red-500 flex items-center gap-1 py-1">
+            <AlertCircle size={11} /> Wapas Aaya — dobara submit karo
           </span>
         )}
       </div>
+    </motion.div>
+  )
+}
+
+// ── Cancel confirm modal ──────────────────────────────────────────────────────
+
+function CancelModal({
+  task,
+  onClose,
+  onConfirm,
+}: {
+  task: DelTask
+  onClose: () => void
+  onConfirm: (reason: string) => void
+}) {
+  const [reason, setReason] = useState('')
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ scale: 0.97, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.97, opacity: 0 }}
+        className="bg-white rounded-2xl shadow-xl border border-stone-100 w-full max-w-sm p-5 space-y-4"
+      >
+        <h3 className="font-semibold text-stone-800">Task Cancel Karo?</h3>
+        <p className="text-sm text-stone-500 line-clamp-2">{task.title}</p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Cancel karne ki wajah (required)…"
+          rows={2}
+          className="w-full text-sm rounded-lg border border-stone-200 px-3 py-2 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1 text-sm">Back</Button>
+          <Button
+            disabled={!reason.trim()}
+            onClick={() => onConfirm(reason.trim())}
+            className="flex-1 text-sm bg-red-600 hover:bg-red-700 text-white"
+          >
+            Cancel Karo
+          </Button>
+        </div>
+      </motion.div>
     </motion.div>
   )
 }
@@ -172,43 +537,108 @@ interface CreateFormProps {
   onCreated: () => void
 }
 
+// Points per tier for display
+const TIER_PTS: Record<string, number> = { S: 5, M: 10, L: 20, XL: 40 }
+const TIER_COLOR: Record<string, string> = {
+  S:  'bg-sky-100 text-sky-700 border-sky-200',
+  M:  'bg-violet-100 text-violet-700 border-violet-200',
+  L:  'bg-amber-100 text-amber-700 border-amber-200',
+  XL: 'bg-rose-100 text-rose-700 border-rose-200',
+}
+const DEPT_LABEL: Record<string, string> = {
+  site_engineer: 'Site Eng', procurement: 'Procure', finance: 'Finance',
+  mis: 'MIS', ai: 'AI/IT', facade: 'Design', marketing: 'Marketing',
+  hr: 'HR', management: 'Mgmt', project_manager: 'Projects', lcs: 'LCS',
+}
+
 function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
   const isHead    = employee.is_head
   const isGlobal  = employee.role === 'founder' || employee.role === 'admin'
   const canAssign = isHead || isGlobal
 
-  const [title, setTitle]           = useState('')
-  const [description, setDesc]      = useState('')
-  const [typeCode, setTypeCode]     = useState(taskTypes[0]?.code ?? '')
-  const [taskDate, setTaskDate]     = useState(today())
-  const [assignedTo, setAssignedTo] = useState(employee.auth_user_id ?? '')
-  const [saving, setSaving]         = useState(false)
+  const firstAssignableUid = (() => {
+    if (!canAssign) return employee.auth_user_id ?? ''
+    const first = teamMembers.find((m) =>
+      m.auth_user_id !== employee.auth_user_id &&
+      m.role !== 'founder' && m.role !== 'admin'
+    )
+    return first?.auth_user_id ?? employee.auth_user_id ?? ''
+  })()
 
-  const selfEntry = { auth_user_id: employee.auth_user_id ?? '', name: `${employee.name} (me)` }
-  const assignees: { auth_user_id: string; name: string }[] = canAssign
-    ? [selfEntry, ...teamMembers.filter((m) => m.auth_user_id !== employee.auth_user_id).map((m) => ({ auth_user_id: m.auth_user_id ?? '', name: m.name }))]
+  const [title, setTitle]               = useState('')
+  const [description, setDesc]          = useState('')
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
+  const [taskDate, setTaskDate]         = useState(today())
+  const [assignedTo, setAssignedTo]     = useState(firstAssignableUid)
+  const [saving, setSaving]             = useState(false)
+
+  const selfEntry = { auth_user_id: employee.auth_user_id ?? '', name: `${employee.name} (Mujhe)` }
+  const assignees = canAssign
+    ? [
+        ...teamMembers
+          .filter((m) => m.role !== 'founder' && m.role !== 'admin')
+          .map((m) => ({ auth_user_id: m.auth_user_id ?? '', name: `${m.name} (${m.role?.replace(/_/g, ' ')})` })),
+        selfEntry,
+      ]
     : [selfEntry]
 
-  // For founder/admin picking someone from a different role_group, the role_group
-  // should follow the assignee. We resolve it from teamMembers or fall back to employee.role.
   const resolvedRoleGroup =
     teamMembers.find((m) => m.auth_user_id === assignedTo)?.role ?? employee.role
 
+  // Role-specific types first, fall back to all
+  const roleTaskTypes = taskTypes.filter((t) => t.role_group === resolvedRoleGroup)
+  const visibleTaskTypes = roleTaskTypes.length > 0 ? roleTaskTypes : taskTypes
+
+  // Group by department for display
+  const grouped = visibleTaskTypes.reduce<Record<string, DelTaskType[]>>((acc, t) => {
+    if (!acc[t.role_group]) acc[t.role_group] = []
+    acc[t.role_group].push(t)
+    return acc
+  }, {})
+
+  // Clear selections when assignee changes
+  useEffect(() => {
+    setSelectedTypes(new Set())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedRoleGroup])
+
+  function toggleType(code: string) {
+    setSelectedTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
+
+  const totalPts = Array.from(selectedTypes).reduce((sum, code) => {
+    const t = visibleTaskTypes.find((x) => x.code === code)
+    return sum + (TIER_PTS[t?.effort_tier ?? ''] ?? 0)
+  }, 0)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim() || selectedTypes.size === 0) return
     setSaving(true)
     try {
-      await createTask({
-        title,
-        description,
-        type_code:   typeCode,
-        task_date:   taskDate,
-        role_group:  resolvedRoleGroup,
-        assigned_to: assignedTo,
-        assigned_by: employee.auth_user_id ?? '',
-      })
-      toast.success('Task created')
+      // Create one task per selected type in parallel
+      await Promise.all(
+        Array.from(selectedTypes).map((code) => {
+          const t = visibleTaskTypes.find((x) => x.code === code)
+          return createTask({
+            title: selectedTypes.size === 1 ? title : `${title} — ${t?.label ?? code}`,
+            description,
+            type_code: code,
+            task_date: taskDate,
+            role_group: t?.role_group ?? resolvedRoleGroup,
+            assigned_to: assignedTo,
+            assigned_by: employee.auth_user_id ?? '',
+          })
+        })
+      )
+      toast.success(selectedTypes.size === 1
+        ? 'Kaam create ho gaya!'
+        : `${selectedTypes.size} kaam create ho gaye!`)
       onCreated()
       onClose()
     } catch (err: unknown) {
@@ -220,102 +650,175 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && !saving && onClose()}
     >
-      <div className="bg-white rounded-2xl shadow-xl border border-stone-100 w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-semibold text-stone-800">New Task</h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl border border-stone-100 w-full sm:max-w-lg flex flex-col max-h-[90vh]"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+          <div>
+            <h2 className="font-semibold text-stone-800">Naya Kaam</h2>
+            <p className="text-xs text-stone-400 mt-0.5">Ek ya zyada type select karo</p>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 p-1">
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label className="text-xs text-stone-600 mb-1 block">Title *</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs to be done?"
-              required
-              className="text-sm"
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="px-5 space-y-4 overflow-y-auto flex-1 pb-2">
 
-          <div>
-            <Label className="text-xs text-stone-600 mb-1 block">Description</Label>
-            <textarea
-              value={description}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="Optional details…"
-              rows={2}
-              className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+            {/* Title */}
             <div>
-              <Label className="text-xs text-stone-600 mb-1 block">Task type</Label>
-              <select
-                value={typeCode}
-                onChange={(e) => setTypeCode(e.target.value)}
-                className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {taskTypes.map((t) => (
-                  <option key={t.code} value={t.code}>
-                    {t.label} ({t.effort_tier})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <Label className="text-xs text-stone-600 mb-1 block">For date</Label>
+              <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kaam ka naam *</Label>
               <Input
-                type="date"
-                value={taskDate}
-                onChange={(e) => setTaskDate(e.target.value)}
-                className="text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Kya kiya / karna hai?"
+                required
+                className="text-sm h-11"
               />
             </div>
+
+            {/* Details */}
+            <div>
+              <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Details <span className="text-stone-400 font-normal">(optional)</span></Label>
+              <textarea
+                value={description}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder="Thoda aur batao…"
+                rows={2}
+                className="w-full text-sm rounded-lg border border-input bg-background px-3 py-2.5 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 resize-none"
+              />
+            </div>
+
+            {/* Date + Assignee row */}
+            <div className={`grid gap-3 ${canAssign ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kab tak?</Label>
+                <Input
+                  type="date"
+                  value={taskDate}
+                  onChange={(e) => setTaskDate(e.target.value)}
+                  className="text-sm h-11"
+                />
+              </div>
+              {canAssign && (
+                <div>
+                  <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kisko?</Label>
+                  <select
+                    value={assignedTo}
+                    onChange={(e) => setAssignedTo(e.target.value)}
+                    className="w-full text-sm rounded-lg border border-input bg-background px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 h-11"
+                  >
+                    {assignees.map((a) => (
+                      <option key={a.auth_user_id} value={a.auth_user_id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Task type multi-select */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs text-stone-500 font-medium">
+                  Kaam ka type
+                  <span className="ml-1 text-stone-400 font-normal">(ek ya zyada chuniye)</span>
+                </Label>
+                {selectedTypes.size > 0 && (
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                    {selectedTypes.size} selected · up to {totalPts} pts
+                  </span>
+                )}
+              </div>
+
+              {visibleTaskTypes.length === 0 ? (
+                <p className="text-xs text-stone-400 italic py-3 text-center">
+                  No task types seeded for your role yet.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {Object.entries(grouped).map(([dept, types]) => (
+                    <div key={dept}>
+                      {Object.keys(grouped).length > 1 && (
+                        <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">
+                          {DEPT_LABEL[dept] ?? dept}
+                        </p>
+                      )}
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {types.map((t) => {
+                          const selected = selectedTypes.has(t.code)
+                          return (
+                            <button
+                              key={t.code}
+                              type="button"
+                              onClick={() => toggleType(t.code)}
+                              className={`flex items-center justify-between w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
+                                selected
+                                  ? 'bg-amber-50 border-amber-400 ring-1 ring-amber-300'
+                                  : 'bg-stone-50 border-stone-200 hover:border-stone-300 hover:bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+                                  selected ? 'bg-amber-600 border-amber-600' : 'border-stone-300'
+                                }`}>
+                                  {selected && (
+                                    <svg viewBox="0 0 10 8" className="w-2.5 h-2 text-white fill-current">
+                                      <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  )}
+                                </div>
+                                <span className={`text-sm leading-snug ${selected ? 'text-amber-900 font-medium' : 'text-stone-700'}`}>
+                                  {t.label}
+                                </span>
+                              </div>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ml-2 ${TIER_COLOR[t.effort_tier] ?? 'bg-stone-100 text-stone-500 border-stone-200'}`}>
+                                {t.effort_tier} · {TIER_PTS[t.effort_tier] ?? '?'}pts
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {canAssign && (
-            <div>
-              <Label className="text-xs text-stone-600 mb-1 block">Assign to</Label>
-              <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {assignees.map((a) => (
-                  <option key={a.auth_user_id} value={a.auth_user_id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1 text-sm">
+          {/* Footer */}
+          <div className="px-5 py-4 border-t border-stone-100 flex gap-2 shrink-0">
+            <Button type="button" variant="outline" onClick={onClose} className="flex-1 text-sm h-11">
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={saving || !title.trim()}
-              className="flex-1 text-sm bg-amber-700 hover:bg-amber-800 text-white"
+              disabled={saving || !title.trim() || selectedTypes.size === 0}
+              className="flex-1 text-sm h-11 bg-amber-700 hover:bg-amber-800 text-white font-medium"
             >
-              {saving ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
-              Create Task
+              {saving
+                ? <><Loader2 size={14} className="animate-spin mr-1.5" /> Creating…</>
+                : selectedTypes.size === 0
+                  ? 'Type chuniye'
+                  : selectedTypes.size === 1
+                    ? <><ChevronRight size={14} className="mr-1" /> Banao</>
+                    : <><ChevronRight size={14} className="mr-1" /> {selectedTypes.size} Tasks Banao</>
+              }
             </Button>
           </div>
         </form>
-      </div>
+      </motion.div>
     </motion.div>
   )
 }
@@ -327,28 +830,32 @@ export function MyDayPage() {
   const navigate     = useNavigate()
   const qc           = useQueryClient()
 
-  const [createOpen, setCreateOpen]   = useState(false)
-  const [actionLoading, setActLoad]   = useState<string | null>(null)
+  const [createOpen, setCreateOpen]         = useState(false)
+  const [submitTask_, setSubmitTask_]       = useState<DelTask | null>(null)
+  const [cancelTask_, setCancelTask_]       = useState<DelTask | null>(null)
+  const [actionLoading, setActLoad]         = useState<string | null>(null)
 
-  const authUserId  = employee?.auth_user_id ?? ''
-  const roleGroup   = employee?.role ?? ''
-  const isHead      = employee?.is_head ?? false
-  const isGlobal    = roleGroup === 'founder' || roleGroup === 'admin'
+  const authUserId = employee?.auth_user_id ?? ''
+  const roleGroup  = employee?.role ?? ''
+  const isHead     = employee?.is_head ?? false
+  const isGlobal   = roleGroup === 'founder' || roleGroup === 'admin'
 
-  const tasksKey     = ['del_tasks', authUserId]
-  const typesKey     = ['del_task_types', roleGroup]
-  const membersKey   = ['del_team', roleGroup]
+  const tasksKey   = ['del_tasks', authUserId]
+  const typesKey   = ['del_task_types', isGlobal || isHead ? 'all' : roleGroup]
+  const membersKey = ['del_team', roleGroup]
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: tasksKey,
     queryFn:  () => fetchMyTasks(authUserId),
     enabled:  !!authUserId,
+    refetchInterval: 20_000,
   })
 
+  // Always fetch all task types — the form filters by assignee role with a fallback to all
   const { data: taskTypes = [] } = useQuery({
-    queryKey: typesKey,
-    queryFn:  () => fetchTaskTypes(roleGroup),
-    enabled:  !!roleGroup,
+    queryKey: ['del_task_types', 'all'],
+    queryFn:  fetchAllTaskTypes,
+    enabled:  true,
   })
 
   const { data: teamMembers = [] } = useQuery({
@@ -360,33 +867,22 @@ export function MyDayPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: tasksKey })
 
   const { mutate: doInProgress } = useMutation({
-    mutationFn: (id: string) => {
+    mutationFn: (id: string) => { setActLoad(id); return moveToInProgress(id) },
+    onSuccess:  () => { invalidate(); setActLoad(null) },
+    onError:    (err: Error) => { toast.error(err.message); setActLoad(null) },
+  })
+
+  const { mutate: doCancel } = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => {
       setActLoad(id)
-      return moveToInProgress(id)
+      return cancelTask(id, reason)
     },
-    onSuccess: () => { invalidate(); setActLoad(null) },
+    onSuccess: () => { invalidate(); setActLoad(null); toast.success('Task cancel ho gaya.') },
     onError:   (err: Error) => { toast.error(err.message); setActLoad(null) },
   })
 
-  const { mutate: doSubmit } = useMutation({
-    mutationFn: (id: string) => {
-      setActLoad(id)
-      return submitTask(id)
-    },
-    onSuccess: (result) => {
-      invalidate()
-      setActLoad(null)
-      toast.success(result.points > 0
-        ? `Submitted! ${result.points} pts pending verification.`
-        : 'Submitted. No points this time — check the reason.')
-    },
-    onError: (err: Error) => { toast.error(err.message); setActLoad(null) },
-  })
-
-  // Split tasks by status (merge verified + rejected into "done" column)
-  function tasksFor(status: DelTaskStatus | 'done') {
-    if (status === 'done') return tasks.filter((t) => t.status === 'verified' || t.status === 'rejected')
-    return tasks.filter((t) => t.status === status)
+  function tasksFor(col: ColConfig) {
+    return tasks.filter((t) => col.statuses.includes(t.status))
   }
 
   const hasRole = LAUNCH_ROLES.includes(roleGroup) || isGlobal
@@ -398,7 +894,6 @@ export function MyDayPage() {
       className="min-h-screen"
       style={{ background: 'radial-gradient(ellipse at 20% 0%, #fef9ec 0%, #fffbf0 40%, #fef3c7 100%)' }}
     >
-      {/* dot pattern */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{ backgroundImage: 'radial-gradient(circle, rgba(180,120,30,0.06) 1px, transparent 1px)', backgroundSize: '28px 28px' }}
@@ -409,80 +904,89 @@ export function MyDayPage() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="relative z-10 bg-white/70 backdrop-blur-md border-b border-amber-100/80 px-6 py-3.5"
+        className="relative z-10 bg-white/70 backdrop-blur-md border-b border-amber-100/80 px-4 py-3.5"
         style={{ boxShadow: '0 2px 24px rgba(146,64,14,0.08)' }}
       >
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/dashboard')}
-              className="text-stone-400 hover:text-stone-600 transition-colors"
+              className="text-stone-400 hover:text-stone-600 transition-colors p-1 -ml-1"
             >
               <ArrowLeft size={18} />
             </button>
             <div>
               <div className="font-semibold text-stone-800 text-sm">Mera Din</div>
-              <div className="text-xs text-stone-400">{employee.name} · {employee.role}</div>
+              <div className="text-xs text-stone-400">{employee.name}</div>
             </div>
           </div>
           {hasRole && (
             <Button
               size="sm"
               onClick={() => setCreateOpen(true)}
-              className="text-xs bg-amber-700 hover:bg-amber-800 text-white"
+              className="text-xs h-9 bg-amber-700 hover:bg-amber-800 text-white"
             >
               <Plus size={13} className="mr-1" />
-              New Task
+              Naya Kaam
             </Button>
           )}
         </div>
       </motion.header>
 
-      <main className="relative z-10 max-w-6xl mx-auto px-4 py-8">
+      <main className="relative z-10 max-w-6xl mx-auto px-3 py-6">
         {!hasRole ? (
           <div className="text-center py-20 text-stone-400 text-sm">
-            Delegation is not enabled for your role yet.
+            Aapke role ke liye delegation abhi available nahi hai.
           </div>
         ) : tasksLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {COLUMNS.map((col) => (
-              <div key={col.status} className="space-y-2">
-                <div className="h-5 w-24 bg-stone-100 rounded animate-pulse" />
+              <div key={col.key} className="space-y-2">
+                <div className="h-5 w-32 bg-stone-100 rounded animate-pulse" />
                 <div className="h-24 bg-white/60 rounded-xl border border-stone-100 animate-pulse" />
               </div>
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {COLUMNS.map((col, i) => {
-              const colTasks = tasksFor(col.status === 'verified' ? 'done' : col.status as DelTaskStatus)
+              const colTasks = tasksFor(col)
               return (
                 <motion.div
-                  key={col.status}
+                  key={col.key}
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.06, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 >
                   <div className={`rounded-xl ${col.accent} border ${col.border} p-3 space-y-2 min-h-[120px]`}>
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="text-xs font-semibold text-stone-600 uppercase tracking-wide">
-                        {col.label}
-                      </h3>
+                      <div>
+                        <h3 className="text-xs font-semibold text-stone-700">{col.label}</h3>
+                        <p className="text-[10px] text-stone-400">{col.sub}</p>
+                      </div>
                       <span className="text-xs text-stone-400 bg-white/60 border border-stone-100 px-1.5 py-0.5 rounded-full">
                         {colTasks.length}
                       </span>
                     </div>
+
                     <AnimatePresence>
                       {colTasks.length === 0 ? (
-                        <p className="text-xs text-stone-400 text-center py-4">Nothing here</p>
+                        <p className="text-xs text-stone-400 text-center py-4">
+                          {col.key === 'todo' ? 'Koi naya kaam nahi' :
+                           col.key === 'doing' ? 'Kuch chal nahi raha' :
+                           col.key === 'review' ? 'Koi submit nahi hua' :
+                           'Koi kaam poora nahi hua'}
+                        </p>
                       ) : (
                         colTasks.map((task) => (
                           <TaskCard
                             key={task.id}
                             task={task}
                             taskTypes={taskTypes}
+                            isHead={isHead || isGlobal}
                             onInProgress={(id) => doInProgress(id)}
-                            onSubmit={(id) => doSubmit(id)}
+                            onSubmit={(t) => setSubmitTask_(t)}
+                            onCancel={(t) => setCancelTask_(t)}
                             actionLoading={actionLoading}
                           />
                         ))
@@ -494,13 +998,32 @@ export function MyDayPage() {
             })}
           </div>
         )}
-
-        {tasks.length === 0 && hasRole && !tasksLoading && (
-          <p className="text-center text-stone-400 text-sm mt-6">
-            No tasks yet — create one with the button above.
-          </p>
-        )}
       </main>
+
+      {/* Submit modal */}
+      <AnimatePresence>
+        {submitTask_ && (
+          <SubmitModal
+            task={submitTask_}
+            onClose={() => setSubmitTask_(null)}
+            onSubmitted={invalidate}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Cancel modal */}
+      <AnimatePresence>
+        {cancelTask_ && (
+          <CancelModal
+            task={cancelTask_}
+            onClose={() => setCancelTask_(null)}
+            onConfirm={(reason) => {
+              doCancel({ id: cancelTask_!.id, reason })
+              setCancelTask_(null)
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Create modal */}
       <AnimatePresence>
@@ -508,7 +1031,7 @@ export function MyDayPage() {
           <CreateTaskForm
             employee={employee}
             taskTypes={taskTypes}
-            teamMembers={teamMembers}
+            teamMembers={teamMembers as Employee[]}
             onClose={() => setCreateOpen(false)}
             onCreated={invalidate}
           />

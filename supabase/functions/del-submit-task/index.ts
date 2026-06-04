@@ -14,16 +14,14 @@ function json(body: unknown, status = 200) {
   })
 }
 
-/** Monday of the ISO week containing the given date string (YYYY-MM-DD). */
 function isoWeekMonday(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00Z')
-  const dow = d.getUTCDay() // 0=Sun
+  const dow = d.getUTCDay()
   const daysToMonday = dow === 0 ? 6 : dow - 1
   d.setUTCDate(d.getUTCDate() - daysToMonday)
   return d.toISOString().slice(0, 10)
 }
 
-/** First day of the month of the given date string. */
 function monthStart(dateStr: string): string {
   return dateStr.slice(0, 7) + '-01'
 }
@@ -37,7 +35,7 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // ── 1. Verify caller identity from JWT (never trust body) ──────────────────
+  // ── 1. Verify caller identity ──────────────────────────────────────────────
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) return json({ error: 'Unauthorized' }, 401)
 
@@ -53,76 +51,64 @@ serve(async (req) => {
     .single()
   if (!caller) return json({ error: 'Forbidden: no active employee record' }, 403)
 
-  // ── 2. Parse and validate input ────────────────────────────────────────────
-  const { task_id } = await req.json()
-  if (!task_id) return json({ error: 'task_id is required' }, 400)
+  // ── 2. Parse input ─────────────────────────────────────────────────────────
+  const body = await req.json()
+  const { task_id, text, attachments = [] } = body as {
+    task_id: string
+    text: string
+    attachments?: { url: string; type: string; name: string; size: number }[]
+  }
 
-  // ── 3. Fetch the task ──────────────────────────────────────────────────────
+  if (!task_id) return json({ error: 'task_id is required' }, 400)
+  if (!text?.trim()) return json({ error: 'Submission text is required' }, 400)
+
+  // ── 3. Fetch and validate task ─────────────────────────────────────────────
   const { data: task, error: taskErr } = await supabase
     .from('del_tasks')
-    .select('id, title, type_code, role_group, assigned_to, task_date, status')
+    .select('id, title, description, type_code, role_group, assigned_to, task_date, status')
     .eq('id', task_id)
     .single()
 
   if (taskErr || !task) return json({ error: 'Task not found' }, 404)
-
-  // Caller must be the assignee
   if (task.assigned_to !== user.id) return json({ error: 'Forbidden: you are not the assignee' }, 403)
-
-  // Can only submit from assigned or in_progress
   if (task.status !== 'assigned' && task.status !== 'in_progress') {
     return json({ error: `Task is already ${task.status}` }, 409)
   }
 
-  // ── 4. Compute timing and points ───────────────────────────────────────────
+  // ── 4. Compute timing ──────────────────────────────────────────────────────
   const now = new Date()
-  const submittedDateStr = now.toISOString().slice(0, 10)  // "YYYY-MM-DD" UTC
-
+  const submittedDateStr = now.toISOString().slice(0, 10)
   const completedOnTime = submittedDateStr <= task.task_date
 
   const graceCutoff = new Date(task.task_date + 'T00:00:00Z')
   graceCutoff.setUTCDate(graceCutoff.getUTCDate() + GRACE_DAYS)
   const withinGrace = submittedDateStr <= graceCutoff.toISOString().slice(0, 10)
 
-  let points = 0
-  let timingLabel = 'beyond grace (0 points)'
-
-  // Look up effort tier from task type (null type_code → 0 points)
+  // ── 5. Compute tier ceiling ────────────────────────────────────────────────
+  let ceiling = 0
   let effortTier: string | null = null
+  let scoredBy: 'agent' | 'external' = 'agent'
+
   if (task.type_code) {
     const { data: tt } = await supabase
       .from('del_task_types')
-      .select('effort_tier, daily_cap')
+      .select('effort_tier, daily_cap, scored_by')
       .eq('code', task.type_code)
       .eq('active', true)
       .single()
 
     if (tt) {
       effortTier = tt.effort_tier
-
+      scoredBy = (tt.scored_by as 'agent' | 'external') ?? 'agent'
+      // Ceiling = full tier points on time, half if in grace, 0 if beyond
       if (completedOnTime) {
-        points = TIER[effortTier] ?? 0
-        timingLabel = 'on time'
+        ceiling = TIER[effortTier] ?? 0
       } else if (withinGrace) {
-        points = TIER_HALF[effortTier] ?? 0
-        timingLabel = `${GRACE_DAYS} day grace (half points)`
+        ceiling = TIER_HALF[effortTier] ?? 0
       }
 
-      // ── 5. Enforce daily_cap ───────────────────────────────────────────────
-      if (tt.daily_cap !== null && points > 0) {
-        const { count } = await supabase
-          .from('del_points')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('task_id', null)   // only count via type_code match below
-          // We need to count by type_code on the same task_date.
-          // Join through del_tasks to find same type_code + task_date.
-          // Simpler: count del_points rows where task_id references a del_task
-          // with the same type_code and task_date — done via a subquery RPC.
-          // For simplicity here, count all of this user's del_points that link to
-          // del_tasks with matching type_code AND task_date, and have points > 0.
-
-        // Use a raw SQL approach via rpc is cleaner; here we do two queries:
+      // Apply daily_cap — if cap reached, ceiling becomes 0
+      if (tt.daily_cap !== null && ceiling > 0) {
         const { data: siblingScoredTasks } = await supabase
           .from('del_tasks')
           .select('id')
@@ -130,7 +116,7 @@ serve(async (req) => {
           .eq('type_code', task.type_code)
           .eq('task_date', task.task_date)
           .neq('id', task_id)
-          .in('status', ['submitted', 'verified'])
+          .in('status', ['submitted', 'under_review', 'completed', 'verified'])
 
         if (siblingScoredTasks && siblingScoredTasks.length > 0) {
           const siblingIds = siblingScoredTasks.map((t: { id: string }) => t.id)
@@ -141,24 +127,14 @@ serve(async (req) => {
             .gt('points', 0)
 
           if ((scoredCount ?? 0) >= tt.daily_cap) {
-            points = 0
-            timingLabel = `daily cap of ${tt.daily_cap} reached for ${task.type_code}`
+            ceiling = 0
           }
         }
       }
     }
   }
 
-  // ── 6. Build reason string ──────────────────────────────────────────────────
-  const typeLabel = task.type_code ?? 'task'
-  const reason = points > 0
-    ? `+${points} — "${task.title}" (${typeLabel}) submitted ${timingLabel} — pending Head verification`
-    : `+0 — "${task.title}" (${typeLabel}) — ${timingLabel}`
-
-  const periodWeek  = isoWeekMonday(task.task_date)
-  const periodMonth = monthStart(task.task_date)
-
-  // ── 7. Update task status ───────────────────────────────────────────────────
+  // ── 6. Update task status to submitted ────────────────────────────────────
   const { error: updateErr } = await supabase
     .from('del_tasks')
     .update({
@@ -171,22 +147,95 @@ serve(async (req) => {
 
   if (updateErr) return json({ error: updateErr.message }, 500)
 
-  // ── 8. Insert pending points row ────────────────────────────────────────────
-  const { error: pointsErr } = await supabase
-    .from('del_points')
+  // ── 7. Create submission record ────────────────────────────────────────────
+  const { data: submission, error: subErr } = await supabase
+    .from('del_submissions')
     .insert({
-      user_id:      user.id,
-      role_group:   task.role_group,
-      points,
-      reason,
-      task_id:      task_id,
-      source_type:  'delegation',
-      status:       'pending',
-      period_week:  periodWeek,
-      period_month: periodMonth,
+      task_id,
+      submitted_by: user.id,
+      input_type: 'text',
+      raw_text: text.trim(),
+      attachments: attachments ?? [],
     })
+    .select('id')
+    .single()
 
-  if (pointsErr) return json({ error: pointsErr.message }, 500)
+  if (subErr) return json({ error: subErr.message }, 500)
 
-  return json({ success: true, points, reason })
+  // ── 8. Audit log ───────────────────────────────────────────────────────────
+  await supabase.from('del_audit_log').insert({
+    task_id,
+    actor_uid: user.id,
+    action: 'submitted',
+    old_status: task.status,
+    new_status: 'submitted',
+    details: { submission_id: submission.id, ceiling, scored_by: scoredBy },
+  })
+
+  // ── 9a. EXTERNAL types: CPS/Finance already own the points (spec §3) ───────
+  // The AI agent does NOT propose points. We move straight to under_review with
+  // a note so the head can see the task; points come from the existing engine.
+  if (scoredBy === 'external') {
+    await supabase
+      .from('del_points')
+      .insert({
+        user_id:      user.id,
+        role_group:   task.role_group,
+        points:       0,
+        proposed_points: null,
+        summary:      'This task type is scored by the CPS/Finance system — points are tracked there, not by the delegation AI. Head: confirm completion only.',
+        reason:       `"${task.title}" submitted — externally scored (CPS/Finance)`,
+        task_id,
+        submission_id: submission.id,
+        source_type:  'delegation',
+        status:       'pending',
+        period_week:  isoWeekMonday(task.task_date),
+        period_month: monthStart(task.task_date),
+        agent_meta:   { confidence: 'n/a', flags: ['external_scored'], reasoning: 'Scored by CPS/Finance engine', model: 'none' },
+      })
+
+    await supabase
+      .from('del_tasks')
+      .update({ status: 'under_review', updated_at: now.toISOString() })
+      .eq('id', task_id)
+
+    return json({
+      success: true,
+      submission_id: submission.id,
+      message: 'Submitted! Yeh kaam CPS/Finance se score hota hai — Head sirf confirm karega.',
+    })
+  }
+
+  // ── 9b. AGENT types: fire-and-forget to n8n AI scoring workflow ───────────
+  // Score runs in n8n; head will see the result once it completes (status → under_review)
+  const n8nWebhook = Deno.env.get('N8N_DEL_SCORING_WEBHOOK')
+  if (n8nWebhook) {
+    fetch(n8nWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task_id,
+        submission_id: submission.id,
+        ceiling,
+        task_title: task.title,
+        task_description: task.description,
+        type_code: task.type_code,
+        role_group: task.role_group,
+        effort_tier: effortTier,
+        raw_text: text.trim(),
+        attachments: attachments ?? [],
+        user_id: user.id,
+        period_week: isoWeekMonday(task.task_date),
+        period_month: monthStart(task.task_date),
+      }),
+    }).catch(() => {
+      // Scoring is best-effort; the task is already submitted
+    })
+  }
+
+  return json({
+    success: true,
+    submission_id: submission.id,
+    message: 'Submitted! AI scoring is running — your head will see the result shortly.',
+  })
 })

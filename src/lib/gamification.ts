@@ -166,17 +166,9 @@ export function deriveTeamSummary(leaderboards: Leaderboard[]): TeamSummary[] {
  * management see it at the top. Other roles get no gamification.
  */
 export function getPlacement(role: RoleId | null | undefined): 'top' | 'bottom' | 'none' {
-  switch (role) {
-    case 'site_engineer':
-      return 'bottom'
-    case 'procurement':
-    case 'finance':
-    case 'admin':
-    case 'management':
-    case 'founder':
-    case 'mis':
-      return 'top'
-    default:
-      return 'none'
-  }
+  if (!role) return 'none'
+  // site_engineer sees gamification below the module grid (their modules are the focus)
+  if (role === 'site_engineer') return 'bottom'
+  // Everyone else sees it above the module grid
+  return 'top'
 }

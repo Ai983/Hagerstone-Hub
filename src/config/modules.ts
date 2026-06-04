@@ -56,6 +56,15 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     borderColor: 'border-amber-500',
     icon: '👷',
   },
+  {
+    id: 'marketing',
+    name: 'Marketing (ERP)',
+    description: 'Campaigns · Client proposals · Lead tracking · Brand assets · Performance reports',
+    url: 'https://hagerstone-marketing-erp.vercel.app/login',
+    color: 'bg-pink-50',
+    borderColor: 'border-pink-400',
+    icon: '📣',
+  },
 ]
 
 export const getModule = (id: string) => MODULE_REGISTRY.find(m => m.id === id)
