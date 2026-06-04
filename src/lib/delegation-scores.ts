@@ -55,14 +55,19 @@ export async function fetchMyRecentPoints(
   authUserId: string,
   limit = 30,
 ): Promise<DelPoint[]> {
+  // Join del_tasks.title so cards can show the real, short task title
+  // (never parse it out of the AI summary string).
   const { data, error } = await supabase
     .from('del_points')
-    .select('*')
+    .select('*, del_tasks(title)')
     .eq('user_id', authUserId)
     .order('awarded_at', { ascending: false })
     .limit(limit)
   if (error) throw error
-  return (data ?? []) as DelPoint[]
+  return (data ?? []).map((row: DelPoint & { del_tasks?: { title: string } | null }) => ({
+    ...row,
+    task_title: row.del_tasks?.title ?? null,
+  })) as DelPoint[]
 }
 
 export async function fetchMyDelegationTotal(authUserId: string): Promise<number> {

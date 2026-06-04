@@ -61,6 +61,8 @@ export interface DelPoint {
   proposed_points: number | null
   summary: string | null
   agent_meta: AgentMeta | null
+  // Joined from del_tasks (set by fetchMyRecentPoints) — never parsed from a string
+  task_title?: string | null
 }
 
 export interface DelTask {

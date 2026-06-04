@@ -5,42 +5,19 @@ import { ArrowLeft, Star } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useGamification } from '../../lib/gamification'
 import { useMyRecentPoints, useDelegationScores, type DelegationPeriod } from '../../lib/delegation-scores'
-import type { DelPoint } from '../../types/delegation'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: '2-digit',
-  })
-}
-
-function sourceBadge(source: 'delegation' | 'cps' | 'finance') {
-  switch (source) {
-    case 'delegation': return 'bg-amber-100 text-amber-800 border-amber-200'
-    case 'cps':        return 'bg-sky-100   text-sky-800   border-sky-200'
-    case 'finance':    return 'bg-violet-100 text-violet-800 border-violet-200'
-  }
-}
-
-function statusStyle(status: DelPoint['status']) {
-  switch (status) {
-    case 'verified': return 'text-stone-800 font-medium'
-    case 'pending':  return 'text-stone-400'
-    case 'rejected': return 'text-red-400 line-through'
-    case 'reversed': return 'text-stone-300 line-through'
-  }
-}
+import { PointEntryCard } from '../../components/delegation/PointEntryCard'
+import { SOURCE_LABEL, type PillStatus } from '../../lib/delegation-ui'
 
 // ── Unified history row shapes ─────────────────────────────────────────────────
 
 interface HistoryRow {
-  id:      string
-  date:    string
-  source:  'delegation' | 'cps' | 'finance'
-  points:  number
-  reason:  string
-  status:  'verified' | 'pending' | 'rejected' | 'reversed'
+  id:        string
+  date:      string
+  source:    'delegation' | 'cps' | 'finance'
+  points:    number
+  title:     string   // short, scannable — the real task title or a short label
+  summary?:  string   // full prose, revealed on tap (delegation AI string)
+  status:    PillStatus
 }
 
 // Build CPS history rows from the gamification payload breakdown
@@ -49,9 +26,9 @@ function cpsRows(me: ReturnType<typeof useGamification>['data']): HistoryRow[] {
   const r = me.me
   const rows: HistoryRow[] = []
   const today = new Date().toISOString()
-  if (r.stockPoints > 0)     rows.push({ id: 'cps-stock',    date: today, source: 'cps', points: r.stockPoints,      reason: `Stock updates: ${r.stockDays} day(s) × 10 pts`,                   status: 'verified' })
-  if (r.quotePoints > 0)     rows.push({ id: 'cps-quote',    date: today, source: 'cps', points: r.quotePoints,      reason: `Quote wins: ${r.quoteWins} winning PO(s) × 10 pts`,               status: 'verified' })
-  if (r.procurementPoints > 0) rows.push({ id: 'cps-proc',  date: today, source: 'cps', points: r.procurementPoints, reason: `PR→Finance turnaround: ${r.procOnTime} on-time · ${r.procLate} late · ${r.procMissed} missed`, status: 'verified' })
+  if (r.stockPoints > 0)     rows.push({ id: 'cps-stock',    date: today, source: 'cps', points: r.stockPoints,      title: `Stock updates: ${r.stockDays} day(s)`,                   status: 'verified' })
+  if (r.quotePoints > 0)     rows.push({ id: 'cps-quote',    date: today, source: 'cps', points: r.quotePoints,      title: `Quote wins: ${r.quoteWins} winning PO(s)`,               status: 'verified' })
+  if (r.procurementPoints > 0) rows.push({ id: 'cps-proc',  date: today, source: 'cps', points: r.procurementPoints, title: `PR→Finance: ${r.procOnTime} on-time · ${r.procLate} late · ${r.procMissed} missed`, status: 'verified' })
   return rows
 }
 
@@ -60,8 +37,8 @@ function financeRows(me: ReturnType<typeof useGamification>['data']): HistoryRow
   const r = me.me
   const rows: HistoryRow[] = []
   const today = new Date().toISOString()
-  if (r.imprestPoints > 0)       rows.push({ id: 'fin-imprest',  date: today, source: 'finance', points: r.imprestPoints,        reason: `Imprest on time: ${r.imprestOnTime} submission(s)`,       status: 'verified' })
-  if (r.financeProcessPoints > 0) rows.push({ id: 'fin-process', date: today, source: 'finance', points: r.financeProcessPoints,  reason: `Imprest processed on time: ${r.financeOnTime} item(s)`, status: 'verified' })
+  if (r.imprestPoints > 0)       rows.push({ id: 'fin-imprest',  date: today, source: 'finance', points: r.imprestPoints,        title: `Imprest on time: ${r.imprestOnTime} submission(s)`,       status: 'verified' })
+  if (r.financeProcessPoints > 0) rows.push({ id: 'fin-process', date: today, source: 'finance', points: r.financeProcessPoints,  title: `Imprest processed on time: ${r.financeOnTime} item(s)`, status: 'verified' })
   return rows
 }
 
@@ -90,14 +67,15 @@ export function MyPointsPage() {
   const groupSize  = scores.filter((s) => s.role_group === roleGroup).length
   const delRank    = myDelScore?.rank ?? null
 
-  // Build delegation history rows
+  // Build delegation history rows — short title up top, AI prose behind the chevron
   const delegationRows: HistoryRow[] = delPoints.map((p) => ({
-    id:     p.id,
-    date:   p.awarded_at,
-    source: 'delegation' as const,
-    points: p.points,
-    reason: p.reason,
-    status: p.status,
+    id:      p.id,
+    date:    p.awarded_at,
+    source:  'delegation' as const,
+    points:  p.points,
+    title:   p.task_title ?? 'Delegation task',
+    summary: p.reason,
+    status:  p.status as PillStatus,
   }))
 
   // Build CPS + Finance rows (reconstructed from existing engine)
@@ -236,49 +214,27 @@ export function MyPointsPage() {
           </div>
         </div>
 
-        {/* History list */}
-        <div
-          className="bg-white/70 backdrop-blur-sm rounded-2xl border border-amber-100 overflow-hidden"
-          style={{ boxShadow: '0 4px 20px rgba(146,64,14,0.08)' }}
-        >
-          {all.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-stone-400">
-              No points match these filters yet.
-            </div>
-          ) : (
-            <div className="divide-y divide-stone-100">
-              {all.map((row, i) => (
-                <motion.div
-                  key={row.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                  className="flex items-start gap-3 px-5 py-3.5"
-                >
-                  {/* Points */}
-                  <div className={`text-sm font-bold w-10 text-right shrink-0 tabular-nums ${
-                    row.points > 0 ? 'text-stone-800' : 'text-stone-300'
-                  }`}>
-                    +{row.points}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border capitalize ${sourceBadge(row.source)}`}>
-                        {row.source}
-                      </span>
-                      <span className="text-xs text-stone-400">{fmtDate(row.date)}</span>
-                    </div>
-                    <p className={`text-xs leading-relaxed ${statusStyle(row.status)}`}>
-                      {row.reason}
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* History list — compact cards, AI prose hidden until tapped */}
+        {all.length === 0 ? (
+          <div className="bg-white/70 rounded-2xl border border-amber-100 px-5 py-12 text-center text-sm text-stone-400"
+               style={{ boxShadow: '0 4px 20px rgba(146,64,14,0.08)' }}>
+            In filters ke liye abhi koi points nahi mile 📊
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {all.map((row) => (
+              <PointEntryCard
+                key={row.id}
+                points={row.points}
+                sourceLabel={SOURCE_LABEL[row.source]}
+                taskTitle={row.title}
+                status={row.status}
+                date={row.date}
+                summary={row.summary}
+              />
+            ))}
+          </div>
+        )}
 
         {/* CPS/Finance caveat */}
         {(hasCps || hasFinance) && (

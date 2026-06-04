@@ -16,18 +16,14 @@ import {
 } from '../../lib/delegation'
 import type { DelTask, AgentMeta } from '../../types/delegation'
 import type { Employee } from '../../types'
+import { PointEntryCard } from '../../components/delegation/PointEntryCard'
+import { type PillStatus } from '../../lib/delegation-ui'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 
 function fmtDateTime(s: string) {
   return new Date(s).toLocaleString('en-IN', {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-  })
-}
-
-function fmtDate(s: string) {
-  return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short',
   })
 }
 
@@ -86,62 +82,39 @@ function TaskRow({
   const hasRedFlags  = agentMeta?.flags?.length && agentMeta.flags.length > 0
   const hasAttachments = submission?.attachments && (submission.attachments as []).length > 0
 
+  const pill: PillStatus = task.status === 'submitted' ? 'scoring' : 'pending'
+
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="bg-white rounded-xl border border-amber-100 overflow-hidden"
-      style={{ boxShadow: '0 2px 12px rgba(146,64,14,0.07)' }}
+    <PointEntryCard
+      points={pt ? proposed : null}
+      sourceLabel={`👤 ${assigneeName}`}
+      taskTitle={task.title}
+      status={pill}
+      date={task.task_date}
+      summary={pt?.summary ?? 'AI scoring chal raha hai… thodi der mein score aayega.'}
     >
-      {/* Top: assignee + task info */}
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                {assigneeName}
-              </span>
-              <span className="text-xs text-stone-400">{task.role_group}</span>
-              {task.status === 'submitted' && (
-                <span className="text-xs text-violet-500 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
-                  Scoring…
-                </span>
-              )}
-            </div>
-            <p className="text-sm font-semibold text-stone-800 leading-snug">{task.title}</p>
-            {task.description && (
-              <p className="text-xs text-stone-500 mt-0.5 leading-relaxed line-clamp-2">{task.description}</p>
-            )}
-          </div>
-          <div className="text-right shrink-0 space-y-0.5">
-            <div className="text-xs text-stone-500">For: {fmtDate(task.task_date)}</div>
-            {task.submitted_at && (
-              <div className="text-xs text-stone-400">Submitted: {fmtDateTime(task.submitted_at)}</div>
-            )}
-          </div>
+      {/* ── Expanded: full review detail + actions ──────────────────────── */}
+      <div className="space-y-3">
+        {/* Meta line */}
+        <div className="flex items-center gap-2 flex-wrap text-xs text-stone-400">
+          <span>{task.role_group}</span>
+          {task.submitted_at && <span>· Submitted {fmtDateTime(task.submitted_at)}</span>}
         </div>
 
-        {/* AI Agent Panel */}
+        {task.description && (
+          <p className="text-xs text-stone-500 leading-relaxed">{task.description}</p>
+        )}
+
         {pt && (
-          <div className="bg-gradient-to-br from-amber-50 to-stone-50 border border-amber-100 rounded-xl p-3.5 space-y-2.5 mb-3">
-            {/* Points proposal + confidence */}
+          <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold text-amber-800">{proposed}</span>
-                <span className="text-sm text-stone-400">pts</span>
-                <span className="text-xs text-stone-400">(AI proposal)</span>
+                <span className="text-sm text-stone-400">pts (AI proposal)</span>
               </div>
               {agentMeta && confidencePill(agentMeta.confidence)}
             </div>
 
-            {/* AI summary */}
-            {pt.summary && (
-              <p className="text-sm text-stone-700 leading-relaxed">{pt.summary}</p>
-            )}
-
-            {/* Flags */}
             {hasRedFlags && (
               <div className="flex items-start gap-1.5 flex-wrap">
                 <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />
@@ -200,16 +173,7 @@ function TaskRow({
           </div>
         )}
 
-        {/* No AI result yet */}
-        {!pt && (
-          <div className="text-xs text-stone-400 italic bg-stone-50 border border-stone-100 rounded-lg px-3 py-2 mb-3">
-            AI scoring chal raha hai… thodi der mein score aayega.
-          </div>
-        )}
-      </div>
-
-      {/* Action area */}
-      <div className="border-t border-stone-100 px-4 py-3">
+        {/* Action area */}
         <AnimatePresence mode="wait">
           {mode === 'actions' && (
             <motion.div
@@ -334,7 +298,7 @@ function TaskRow({
           )}
         </AnimatePresence>
       </div>
-    </motion.div>
+    </PointEntryCard>
   )
 }
 

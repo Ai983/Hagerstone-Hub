@@ -174,10 +174,10 @@ export function DashboardPage() {
           className="mb-8"
         >
           <h2 className="text-2xl font-semibold text-stone-800 tracking-tight">
-            Good to see you, {firstName} 👋
+            Namaste, {firstName} 👋
           </h2>
           <p className="text-sm text-stone-400 mt-1">
-            Select a module below to get started. Locked tiles are not assigned to your role.
+            Niche apna module chunein 👇 (Locked = aapke role ke liye nahi 🔒)
           </p>
         </motion.div>
 
@@ -201,7 +201,7 @@ export function DashboardPage() {
           </div>
         ) : (
           <div
-            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 auto-rows-fr"
             style={{ perspective: '1200px' }}
           >
             {MODULE_REGISTRY.map((mod, idx) => (
