@@ -8,7 +8,10 @@ export type RoleId =
   | 'site_engineer'
   | 'ai'
   | 'mis'
-  | 'marketing'
+  | 'design'
+  | 'ea'
+  | 'sales'
+  | 'crm'
   | 'founder'
 
 export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs' | 'marketing'

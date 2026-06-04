@@ -3,10 +3,6 @@ import type { Leaderboard as LeaderboardData, LeaderboardRow } from '../../lib/g
 
 const MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' }
 
-function rankBadge(rank: number) {
-  return MEDALS[rank] ?? rank
-}
-
 function breakdown(row: LeaderboardRow, key: LeaderboardData['key']): string {
   switch (key) {
     case 'site_engineer':

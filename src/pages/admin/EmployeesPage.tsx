@@ -23,6 +23,10 @@ const ROLE_LABELS: Record<RoleId, string> = {
   site_engineer: 'Site Engineer',
   ai: 'AI',
   mis: 'MIS',
+  design: 'Design',
+  ea: 'Executive Assistant',
+  sales: 'Sales',
+  crm: 'CRM',
   founder: 'Founder',
 }
 

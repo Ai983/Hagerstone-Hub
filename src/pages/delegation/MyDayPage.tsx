@@ -10,7 +10,6 @@ import { toast } from 'sonner'
 import { useAuth } from '../../hooks/useAuth'
 import {
   fetchMyTasks,
-  fetchTaskTypes,
   fetchAllTaskTypes,
   fetchTeamMembers,
   fetchAllActiveEmployees,
@@ -53,21 +52,6 @@ function fmtDate(s: string) {
   return new Date(s + 'T00:00:00').toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short',
   })
-}
-
-// V2 status → display label (Hinglish-friendly)
-function statusLabel(status: DelTaskStatus): string {
-  switch (status) {
-    case 'assigned':    return 'Naya Kaam'
-    case 'in_progress': return 'Chal Raha Hai'
-    case 'submitted':
-    case 'under_review': return 'Review Mein'
-    case 'completed':
-    case 'verified':    return 'Ho Gaya ✅'
-    case 'rejected':    return 'Wapas Aaya'
-    case 'cancelled':   return 'Cancel'
-    default:            return status
-  }
 }
 
 function pointBadge(task: DelTask) {
@@ -841,7 +825,6 @@ export function MyDayPage() {
   const isGlobal   = roleGroup === 'founder' || roleGroup === 'admin'
 
   const tasksKey   = ['del_tasks', authUserId]
-  const typesKey   = ['del_task_types', isGlobal || isHead ? 'all' : roleGroup]
   const membersKey = ['del_team', roleGroup]
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({

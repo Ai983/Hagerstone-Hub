@@ -81,7 +81,6 @@ function TaskRow({
   const submission   = task.del_submissions?.[0]
   const agentMeta    = pt?.agent_meta as AgentMeta | null
   const proposed     = pt?.proposed_points ?? 0
-  const ceiling      = agentMeta ? undefined : undefined // ceiling comes from points later
 
   // Flags that warrant extra attention
   const hasRedFlags  = agentMeta?.flags?.length && agentMeta.flags.length > 0
