@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft, Plus, X, CheckCircle2, Clock, AlertCircle, Loader2,
+  ArrowLeft, Plus, X, Loader2,
   Paperclip, Send, ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -21,6 +21,8 @@ import {
 } from '../../lib/delegation'
 import type { DelTask, DelTaskType, DelTaskStatus } from '../../types/delegation'
 import type { Employee } from '../../types'
+import { PointEntryCard } from '../../components/delegation/PointEntryCard'
+import { LABELS, STAGE_EMPTY, type PillStatus } from '../../lib/delegation-ui'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
@@ -54,26 +56,6 @@ function fmtDate(s: string) {
   })
 }
 
-function pointBadge(task: DelTask) {
-  const pt = task.del_points?.[0]
-  if (!pt) return null
-  const color =
-    pt.status === 'verified' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
-    pt.status === 'rejected' ? 'text-red-500 bg-red-50 border-red-200 line-through' :
-    'text-stone-400 bg-stone-50 border-stone-200'
-  const label =
-    pt.status === 'verified' ? `+${pt.points} pts ✓` :
-    pt.status === 'rejected' ? `0 pts ✗` :
-    pt.proposed_points !== null && pt.proposed_points !== undefined
-      ? `~${pt.proposed_points} pts (AI, pending)`
-      : `+${pt.points} pts (pending)`
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${color}`}>
-      {label}
-    </span>
-  )
-}
-
 // ── Column config (4 visible: To Do | Doing | Sent for Review | Done) ─────────
 
 interface ColConfig {
@@ -88,32 +70,32 @@ interface ColConfig {
 const COLUMNS: ColConfig[] = [
   {
     key: 'todo',
-    label: 'To Do',
-    sub: 'Naya Kaam',
+    label: '🆕 Naya Kaam',
+    sub: STAGE_EMPTY.assigned,
     accent: 'bg-amber-50',
     border: 'border-amber-200',
     statuses: ['assigned'],
   },
   {
     key: 'doing',
-    label: 'Doing',
-    sub: 'Chal Raha Hai',
+    label: '⏳ Chal Raha Hai',
+    sub: STAGE_EMPTY.in_progress,
     accent: 'bg-sky-50',
     border: 'border-sky-200',
     statuses: ['in_progress'],
   },
   {
     key: 'review',
-    label: 'Sent for Review',
-    sub: 'Review Mein',
+    label: '👀 Review Mein',
+    sub: STAGE_EMPTY.review,
     accent: 'bg-violet-50',
     border: 'border-violet-200',
     statuses: ['submitted', 'under_review'],
   },
   {
     key: 'done',
-    label: 'Done',
-    sub: 'Ho Gaya',
+    label: '✅ Ho Gaya',
+    sub: STAGE_EMPTY.done,
     accent: 'bg-stone-50',
     border: 'border-stone-200',
     statuses: ['completed', 'verified', 'rejected', 'cancelled'],
@@ -330,19 +312,49 @@ function TaskCard({
   onCancel: (task: DelTask) => void
   actionLoading: string | null
 }) {
-  const typeLabel = taskTypes.find((t) => t.code === task.type_code)?.label ?? task.type_code ?? '—'
+  const typeLabel = taskTypes.find((t) => t.code === task.type_code)?.label ?? task.type_code ?? 'Kaam'
   const loading   = actionLoading === task.id
   const pt        = task.del_points?.[0]
-  const isDone    = task.status === 'completed' || task.status === 'verified'
-  const isReview  = task.status === 'submitted' || task.status === 'under_review'
+  const isActionable = task.status === 'assigned' || task.status === 'in_progress'
 
+  // Review / Done / Rejected / Cancelled → compact collapsible card (AI prose hidden)
+  if (!isActionable) {
+    const pill: PillStatus =
+      task.status === 'submitted'    ? 'scoring'  :
+      task.status === 'under_review' ? 'pending'  :
+      (task.status === 'completed' || task.status === 'verified') ? 'verified' :
+      task.status === 'rejected'     ? 'rejected' : 'reversed'
+
+    const pts: number | null =
+      task.status === 'submitted'    ? null :
+      task.status === 'under_review' ? (pt?.proposed_points ?? pt?.points ?? 0) :
+      (pt?.points ?? 0)
+
+    const summary =
+      task.status === 'rejected'  ? (task.reject_reason ? `↩ ${task.reject_reason}` : pt?.summary ?? undefined) :
+      task.status === 'cancelled' ? (task.reject_reason ? `Cancel: ${task.reject_reason}` : undefined) :
+      (pt?.summary ?? pt?.reason ?? undefined)
+
+    return (
+      <PointEntryCard
+        points={pts}
+        sourceLabel={`🏷️ ${typeLabel}`}
+        taskTitle={task.title}
+        status={pill}
+        date={task.task_date}
+        summary={summary}
+      />
+    )
+  }
+
+  // To-Do / Doing → action card with glossary buttons
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className="bg-white rounded-xl border border-stone-100 p-3 shadow-sm space-y-2"
+      className="bg-card rounded-xl border border-stone-200 p-3 shadow-sm space-y-2"
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-stone-800 leading-snug">{task.title}</p>
@@ -353,108 +365,42 @@ function TaskCard({
         <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">{task.description}</p>
       )}
 
-      {/* AI summary (shown when under_review / completed) */}
-      {(isReview || isDone) && pt?.summary && (
-        <div className="text-xs text-stone-600 bg-amber-50/60 border border-amber-100 rounded-lg px-2.5 py-2 leading-relaxed">
-          <span className="font-medium text-amber-800">AI: </span>{pt.summary}
-        </div>
-      )}
+      <span className="inline-block text-xs text-stone-400 bg-stone-50 border border-stone-100 px-2 py-0.5 rounded-full">
+        🏷️ {typeLabel}
+      </span>
 
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-xs text-stone-400 bg-stone-50 border border-stone-100 px-2 py-0.5 rounded-full">
-          {typeLabel}
-        </span>
-        {pointBadge(task)}
-      </div>
-
-      {task.status === 'rejected' && task.reject_reason && (
-        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
-          ↩ {task.reject_reason}
-        </p>
-      )}
-
-      {task.status === 'cancelled' && task.reject_reason && (
-        <p className="text-xs text-stone-400 bg-stone-50 border border-stone-100 rounded-lg px-2 py-1.5">
-          Cancel: {task.reject_reason}
-        </p>
-      )}
-
-      {/* Action buttons — min-h 44px for mobile */}
-      <div className="flex gap-1.5 pt-1 flex-wrap">
+      {/* Action buttons — min-h 44px, aligned full-width row */}
+      <div className="flex gap-1.5 pt-1">
         {task.status === 'assigned' && (
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-11 text-xs border-sky-200 text-sky-700 hover:bg-sky-50 flex-1"
-              disabled={loading}
-              onClick={() => onInProgress(task.id)}
-            >
-              {loading ? <Loader2 size={12} className="animate-spin" /> : 'Shuru Karo'}
-            </Button>
-            <Button
-              size="sm"
-              className="h-11 text-xs bg-amber-700 hover:bg-amber-800 text-white flex-1"
-              disabled={loading}
-              onClick={() => onSubmit(task)}
-            >
-              {loading ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} className="mr-1" />Submit</>}
-            </Button>
-            {isHead && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-11 text-xs border-stone-200 text-stone-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50"
-                disabled={loading}
-                onClick={() => onCancel(task)}
-              >
-                <X size={12} />
-              </Button>
-            )}
-          </>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-11 text-xs border-sky-200 text-sky-700 hover:bg-sky-50 flex-1"
+            disabled={loading}
+            onClick={() => onInProgress(task.id)}
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : LABELS.startTask}
+          </Button>
         )}
-        {task.status === 'in_progress' && (
-          <>
-            <Button
-              size="sm"
-              className="h-11 text-xs bg-amber-700 hover:bg-amber-800 text-white flex-1"
-              disabled={loading}
-              onClick={() => onSubmit(task)}
-            >
-              {loading ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} className="mr-1" />EOD Submit</>}
-            </Button>
-            {isHead && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-11 text-xs border-stone-200 text-stone-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50"
-                disabled={loading}
-                onClick={() => onCancel(task)}
-              >
-                <X size={12} />
-              </Button>
-            )}
-          </>
-        )}
-        {task.status === 'submitted' && (
-          <span className="text-xs text-violet-500 flex items-center gap-1 py-1">
-            <Loader2 size={11} className="animate-spin" /> AI scoring…
-          </span>
-        )}
-        {task.status === 'under_review' && (
-          <span className="text-xs text-violet-600 flex items-center gap-1 py-1">
-            <Clock size={11} /> Head review mein hai
-          </span>
-        )}
-        {isDone && (
-          <span className="text-xs text-emerald-600 flex items-center gap-1 py-1">
-            <CheckCircle2 size={11} /> Ho Gaya
-          </span>
-        )}
-        {task.status === 'rejected' && (
-          <span className="text-xs text-red-500 flex items-center gap-1 py-1">
-            <AlertCircle size={11} /> Wapas Aaya — dobara submit karo
-          </span>
+        <Button
+          size="sm"
+          className="h-11 text-xs bg-amber-700 hover:bg-amber-800 text-white flex-1"
+          disabled={loading}
+          onClick={() => onSubmit(task)}
+        >
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} className="mr-1" />{LABELS.submitWork}</>}
+        </Button>
+        {isHead && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-11 w-11 shrink-0 text-stone-400 border-stone-200 hover:text-red-500 hover:border-red-200 hover:bg-red-50"
+            disabled={loading}
+            onClick={() => onCancel(task)}
+            aria-label="Cancel task"
+          >
+            <X size={14} />
+          </Button>
         )}
       </div>
     </motion.div>
@@ -943,22 +889,16 @@ export function MyDayPage() {
                 >
                   <div className={`rounded-xl ${col.accent} border ${col.border} p-3 space-y-2 min-h-[120px]`}>
                     <div className="flex items-center justify-between mb-1">
-                      <div>
-                        <h3 className="text-xs font-semibold text-stone-700">{col.label}</h3>
-                        <p className="text-[10px] text-stone-400">{col.sub}</p>
-                      </div>
-                      <span className="text-xs text-stone-400 bg-white/60 border border-stone-100 px-1.5 py-0.5 rounded-full">
-                        {colTasks.length}
-                      </span>
+                      <h3 className="text-sm font-semibold text-stone-700">
+                        {col.label}
+                        <span className="text-stone-400 font-normal"> ({colTasks.length})</span>
+                      </h3>
                     </div>
 
                     <AnimatePresence>
                       {colTasks.length === 0 ? (
                         <p className="text-xs text-stone-400 text-center py-4">
-                          {col.key === 'todo' ? 'Koi naya kaam nahi' :
-                           col.key === 'doing' ? 'Kuch chal nahi raha' :
-                           col.key === 'review' ? 'Koi submit nahi hua' :
-                           'Koi kaam poora nahi hua'}
+                          {col.sub}
                         </p>
                       ) : (
                         colTasks.map((task) => (

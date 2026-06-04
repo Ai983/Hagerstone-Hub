@@ -57,7 +57,7 @@ export function DelegationLeaderboard({ roleGroup, authUserId, period, compact =
           <div className="h-4 bg-stone-100 rounded animate-pulse w-1/2" />
         </div>
       ) : rows.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-stone-400">No scores yet.</div>
+        <div className="px-5 py-8 text-center text-sm text-stone-400">Abhi koi score nahi 📊 — kaam complete karke points kamayein!</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

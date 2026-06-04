@@ -1,34 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Star, Flame, Clock } from 'lucide-react'
 import { useMyRecentPoints, useDelegationScores, type DelegationPeriod } from '../../lib/delegation-scores'
 import { DELEGATION_POINTS } from '../../config/delegation-points'
+import { PointEntryCard } from '../delegation/PointEntryCard'
+import { SOURCE_LABEL, LABELS, type PillStatus } from '../../lib/delegation-ui'
 import { useCountUp } from './useCountUp'
-import type { DelPoint } from '../../types/delegation'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function statusColor(status: DelPoint['status']) {
-  switch (status) {
-    case 'verified': return 'text-stone-800'
-    case 'pending':  return 'text-stone-400'
-    case 'rejected': return 'text-red-400 line-through'
-    case 'reversed': return 'text-stone-300 line-through'
-  }
-}
-
-function statusDot(status: DelPoint['status']) {
-  switch (status) {
-    case 'verified': return 'bg-emerald-500'
-    case 'pending':  return 'bg-amber-300 animate-pulse'
-    case 'rejected': return 'bg-red-400'
-    case 'reversed': return 'bg-stone-200'
-  }
-}
-
-function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-}
 
 // Rules explainer (mirrors PointsCard pattern)
 const RULES = [
@@ -50,9 +28,10 @@ interface Props {
 
 export function DelegationPointsCard({ authUserId, roleGroup, period, onPeriodChange }: Props) {
   const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
 
   const { data: scores = [] } = useDelegationScores(period)
-  const { data: recent = [] } = useMyRecentPoints(authUserId, 10)
+  const { data: recent = [] } = useMyRecentPoints(authUserId, 2)
 
   const me = scores.find((s) => s.user_id === authUserId)
   const verified  = me?.verified_points ?? 0
@@ -135,20 +114,30 @@ export function DelegationPointsCard({ authUserId, roleGroup, period, onPeriodCh
         )}
       </div>
 
-      {/* Recent reasons feed */}
+      {/* Recent — at most 2 compact cards; full history lives on My Points */}
       {recent.length > 0 && (
-        <div className="border-t border-stone-100 pt-3 space-y-1.5 mb-3">
-          {recent.slice(0, 5).map((pt) => (
-            <div key={pt.id} className="flex items-start gap-2 text-xs">
-              <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${statusDot(pt.status)}`} />
-              <span className={`leading-relaxed ${statusColor(pt.status)}`}>
-                <span className="text-stone-400">{fmtDate(pt.awarded_at)} · </span>
-                {pt.reason}
-              </span>
-            </div>
+        <div className="border-t border-stone-100 pt-3 space-y-2 mb-3">
+          {recent.slice(0, 2).map((pt) => (
+            <PointEntryCard
+              key={pt.id}
+              points={pt.points}
+              sourceLabel={SOURCE_LABEL.delegation}
+              taskTitle={pt.task_title ?? 'Delegation task'}
+              status={pt.status as PillStatus}
+              date={pt.awarded_at}
+              summary={pt.reason}
+            />
           ))}
         </div>
       )}
+
+      {/* View-all link → My Points (full history lives there, not duplicated here) */}
+      <button
+        onClick={() => navigate('/delegation/my-points')}
+        className="w-full text-center text-xs font-medium text-amber-700 hover:text-amber-800 transition-colors mb-3 py-1"
+      >
+        {LABELS.viewAllPts}
+      </button>
 
       {/* Rules explainer */}
       <button
@@ -158,7 +147,7 @@ export function DelegationPointsCard({ authUserId, roleGroup, period, onPeriodCh
         <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
           <ChevronDown size={14} />
         </motion.span>
-        Points kaise milte hain?
+        {LABELS.pointsHelp}
       </button>
       <AnimatePresence initial={false}>
         {open && (

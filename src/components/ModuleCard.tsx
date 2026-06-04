@@ -59,6 +59,7 @@ export function ModuleCard({ module, isAccessible, index }: Props) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.45, delay: index * 0.07, ease: [0.22, 1, 0.36, 1] }}
       style={{ perspective: 800 }}
+      className="h-full"
     >
       <motion.div
         ref={cardRef}
@@ -77,7 +78,7 @@ export function ModuleCard({ module, isAccessible, index }: Props) {
         } : {}}
         whileTap={isAccessible ? { scale: 0.97 } : {}}
         className={`
-          relative bg-white rounded-2xl border-t-4 p-5 overflow-hidden select-none
+          relative h-full bg-white rounded-2xl border-t-4 p-5 overflow-hidden select-none
           ${module.borderColor}
           ${isAccessible
             ? 'cursor-pointer border border-stone-100'
@@ -108,9 +109,12 @@ export function ModuleCard({ module, isAccessible, index }: Props) {
           {module.icon}
         </motion.div>
 
-        {/* Text */}
-        <div className="font-semibold text-stone-800 text-sm mb-1 leading-snug">{module.name}</div>
-        <div className="text-xs text-stone-400 leading-relaxed">{module.description}</div>
+        {/* Text — one short line, no paragraphs */}
+        <div className="font-semibold text-stone-800 text-sm mb-1 leading-snug line-clamp-1">{module.name}</div>
+        <div className="text-xs text-stone-400 leading-relaxed line-clamp-1">{module.description}</div>
+        {!isAccessible && (
+          <div className="text-[10px] text-stone-400 mt-1">Aapke role ke liye nahi 🔒</div>
+        )}
 
         {/* Access indicator */}
         <div className="absolute top-3 right-3">
