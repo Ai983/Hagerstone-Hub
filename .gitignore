@@ -28,6 +28,12 @@ HAGERSTONE_*.md
 backups/
 n8n_backups_*/
 
+# Supabase migrations: this project applies schema directly via MCP/dashboard,
+# not via git-tracked migration files. Tracking them drifts from the remote
+# 91-version history and fails the Supabase Preview check. Keep them out of git.
+supabase/migrations/
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
