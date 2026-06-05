@@ -14,6 +14,23 @@ export function usePrefersReducedMotion() {
   return reduced
 }
 
+/** Probes for WebGL support once — avoids Three.js error spam in sandboxed/headless browsers. */
+let _webglSupported: boolean | null = null
+function webglSupported(): boolean {
+  if (_webglSupported !== null) return _webglSupported
+  try {
+    const canvas = document.createElement('canvas')
+    _webglSupported = !!(
+      canvas.getContext('webgl2') ??
+      canvas.getContext('webgl') ??
+      canvas.getContext('experimental-webgl')
+    )
+  } catch {
+    _webglSupported = false
+  }
+  return _webglSupported
+}
+
 /** Gently eases the camera toward the pointer for a parallax / mouse-reactive feel. */
 function ParallaxRig() {
   useFrame((state) => {
@@ -49,7 +66,8 @@ export default function Scene3D({
 }: Scene3DProps) {
   const reduced = usePrefersReducedMotion()
 
-  if (reduced) {
+  // Skip the WebGL canvas entirely if the browser / environment can't support it
+  if (reduced || !webglSupported()) {
     return (
       <div
         className={className}

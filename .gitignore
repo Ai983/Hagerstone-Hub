@@ -1,3 +1,6 @@
+# Cursor IDE local config (contains API tokens — never commit)
+.cursor/
+
 # Logs
 logs
 *.log
