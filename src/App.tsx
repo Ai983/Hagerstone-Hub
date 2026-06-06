@@ -14,6 +14,7 @@ import { EditEmployeePage } from './pages/admin/EditEmployeePage'
 import { MyDayPage } from './pages/delegation/MyDayPage'
 import { VerifyQueuePage } from './pages/delegation/VerifyQueuePage'
 import { MyPointsPage } from './pages/delegation/MyPointsPage'
+import { ApprovalsPage } from './pages/ApprovalsPage'
 
 const queryClient = new QueryClient()
 
@@ -70,6 +71,12 @@ export default function App() {
             <ProtectedRoute>
               <MyPointsPage />
             </ProtectedRoute>
+          } />
+
+          <Route path="/approvals" element={
+            <HeadRoute>
+              <ApprovalsPage />
+            </HeadRoute>
           } />
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
