@@ -126,6 +126,20 @@ export function DashboardPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => navigate('/approvals')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  📋
+                  Approvals
+                </Button>
+              </motion.div>
+            )}
+            {(employee?.role === 'founder' || isAdmin) && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => navigate('/founder')}
                   className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
                   style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
