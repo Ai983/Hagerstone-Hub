@@ -14,33 +14,48 @@ export function useAuth(): AuthState {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let active = true
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchEmployee(session.user.id)
-      } else {
-        setLoading(false)
-      }
+      if (!active) return
+      if (session?.user) fetchEmployee(session.user.id)
+      else setLoading(false)
     })
 
+    // IMPORTANT: never `await` a Supabase data call directly inside the
+    // onAuthStateChange callback. The auth client holds an internal lock while
+    // the callback runs; an awaited Supabase call inside it deadlocks the lock,
+    // so the JWT never attaches to subsequent requests (they go out as anon →
+    // 401/406) and the session gets dropped — i.e. "logged in for a second then
+    // kicked back to login". Defer the work out of the callback with setTimeout.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        fetchEmployee(session.user.id)
+      const uid = session?.user?.id
+      if (uid) {
+        setTimeout(() => { if (active) fetchEmployee(uid) }, 0)
       } else {
         setEmployee(null)
         setLoading(false)
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => { active = false; subscription.unsubscribe() }
   }, [])
 
   async function fetchEmployee(authUserId: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('employees')
       .select('*')
       .eq('auth_user_id', authUserId)
       .eq('is_active', true)
-      .single()
+      .maybeSingle() // returns null (not a 406) when there is no matching row
+
+    if (error) {
+      // Transient/auth error (e.g. token not yet attached) — do NOT null out the
+      // employee, otherwise the user gets bounced back to the login screen.
+      console.warn('[useAuth] fetchEmployee failed:', error.message)
+      setLoading(false)
+      return
+    }
 
     setEmployee(data ?? null)
     setLoading(false)

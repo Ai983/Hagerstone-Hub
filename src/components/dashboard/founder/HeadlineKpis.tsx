@@ -86,8 +86,6 @@ export function HeadlineKpis({ data, loading }: Props) {
           label="Imprest Outstanding"
           value={inr(data?.imprest_outstanding)}
           loading={loading}
-          alert={(data?.imprest_blocked_count ?? 0) > 0}
-          sub={data?.imprest_blocked_count ? `${data.imprest_blocked_count} blocked` : undefined}
         />
         <KpiCard
           label="Payments Due 30d"
