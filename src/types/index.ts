@@ -14,7 +14,7 @@ export type RoleId =
   | 'crm'
   | 'founder'
 
-export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs' | 'marketing'
+export type ModuleId = 'attendance' | 'cps' | 'finance_admin' | 'finance_employee' | 'hireflow' | 'lcs' | 'marketing' | 'scraper'
 
 export interface Role {
   id: RoleId
