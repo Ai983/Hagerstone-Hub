@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
-import { ArrowLeft, LogOut, ChevronDown } from 'lucide-react'
+import { ArrowLeft, LogOut } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { useState } from 'react'
@@ -18,12 +18,18 @@ interface ApprovalRequest {
   purpose: string
   amount_requested: number
   approved_amount: number
+  old_balance_deducted?: number
+  net_approved_amount?: number
   submitted_at: string
   approval_route: string
+  // canonical note columns (written by backend after the fix)
   s1_note?: string
   s2_note?: string
   s3_note?: string
   director_note?: string
+  // legacy plural columns (written by older backend — kept for backward compat display)
+  s1_notes?: string
+  s2_notes?: string
   founder_rejection_count: number
   founder_gate_comment?: string
   founder_gate_status?: 'approved' | 'rejected'
@@ -37,7 +43,8 @@ async function fetchFounderQueue(token: string) {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) throw new Error(`Failed to fetch: ${response.statusText}`)
-  return response.json()
+  const json = await response.json()
+  return json.data ?? json
 }
 
 async function approveGate(id: string, comment: string, token: string) {
@@ -67,6 +74,17 @@ async function rejectGate(id: string, comment: string, token: string) {
   return response.json()
 }
 
+// Resolve stage labels for route-aware display
+function stageLabel(route: string, stage: 's1' | 's2' | 'director' | 's3') {
+  const isS2Route = route === 's2_finance_founder'
+  const isDirectorRoute = route === 'avisha_director_finance_founder'
+  if (stage === 's1') return isS2Route ? null : '✅ S1 — Avisha'
+  if (stage === 's2') return isS2Route ? '✅ S2 — Ritu Ma\'am' : null
+  if (stage === 'director') return isDirectorRoute ? '✅ Director' : null
+  if (stage === 's3') return '✅ Finance'
+  return null
+}
+
 function ApprovalCard({
   req,
   isReviewed,
@@ -81,77 +99,147 @@ function ApprovalCard({
   loading: boolean
 }) {
   const [comment, setComment] = useState('')
-  const [showNotes, setShowNotes] = useState(false)
   const daysAgo = Math.floor((Date.now() - new Date(req.submitted_at).getTime()) / (24 * 60 * 60 * 1000))
-  const route = req.approval_route === 'avisha_finance_founder' ? '🟡 Route A' : '🔴 Route B'
+
+  // Resolve route label
+  const routeLabel =
+    req.approval_route === 's2_finance_founder'
+      ? '🔵 HO/Bangalore'
+      : req.approval_route === 'avisha_director_finance_founder'
+      ? '🔴 High-Value'
+      : '🟡 Standard'
+
+  // Resolved notes — use singular column, fall back to plural for old records
+  const s1Note = req.s1_note || req.s1_notes || null
+  const s2Note = req.s2_note || req.s2_notes || null
+  const s3Note = req.s3_note || null
+  const dirNote = req.director_note || null
+
+  const hasAnyNote = !!(s1Note || s2Note || s3Note || dirNote)
+
+  const netAmount = req.net_approved_amount ?? (
+    req.old_balance_deducted && req.old_balance_deducted > 0
+      ? (req.approved_amount || req.amount_requested) - req.old_balance_deducted
+      : (req.approved_amount || req.amount_requested)
+  )
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="border border-amber-200 rounded-lg p-5 bg-white/60 backdrop-blur-sm hover:shadow-md transition-shadow"
+      className="border border-amber-200 rounded-xl p-5 bg-white/70 backdrop-blur-sm hover:shadow-md transition-shadow"
     >
+      {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div>
-          <div className="font-semibold text-amber-950">{req.ref_id}</div>
-          <div className="text-sm text-amber-700 mt-1">
-            ₹{req.approved_amount?.toLocaleString('en-IN') || req.amount_requested?.toLocaleString('en-IN')} • {req.employee?.name || '—'} • {req.site}
+          <div className="font-bold text-amber-950 text-base">{req.ref_id}</div>
+          <div className="text-sm text-amber-700 mt-0.5">
+            {req.employee?.name || '—'} · {req.site}
           </div>
         </div>
-        <span className="text-xs font-medium bg-amber-100 text-amber-800 px-2 py-1 rounded">
-          {route}
+        <span className="text-xs font-medium bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
+          {routeLabel}
         </span>
       </div>
 
-      <div className="text-sm text-amber-800 mb-3">
-        <div className="font-medium">{req.category}</div>
-        <div className="text-xs text-amber-700 mt-1">{req.purpose}</div>
-        <div className="text-xs text-amber-600 mt-2">{daysAgo} days ago</div>
+      {/* Amount block */}
+      <div className="bg-amber-50 rounded-lg p-3 mb-3 flex items-center justify-between">
+        <div>
+          <div className="text-xs text-amber-600 font-medium">Approved Amount</div>
+          <div className="text-lg font-bold text-amber-900">
+            ₹{(req.approved_amount || req.amount_requested)?.toLocaleString('en-IN')}
+          </div>
+          {(req.old_balance_deducted ?? 0) > 0 && (
+            <div className="text-xs text-orange-700 mt-0.5">
+              ⚠ Old balance deducted: ₹{req.old_balance_deducted?.toLocaleString('en-IN')} → Net payable: ₹{netAmount?.toLocaleString('en-IN')}
+            </div>
+          )}
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-amber-600">{req.category}</div>
+          <div className="text-xs text-amber-500 mt-0.5">{daysAgo}d ago</div>
+        </div>
       </div>
 
-      {req.founder_rejection_count > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded p-2 mb-3">
-          <div className="text-xs font-semibold text-red-800">⚠️ Rejected {req.founder_rejection_count} time(s)</div>
-          <div className="text-xs text-red-700 mt-1">{req.founder_gate_comment}</div>
-        </div>
+      {req.purpose && (
+        <div className="text-xs text-amber-700 italic mb-3 px-1">Purpose: {req.purpose}</div>
       )}
 
-      {/* Stage Notes Accordion */}
-      <button
-        onClick={() => setShowNotes(!showNotes)}
-        className="w-full flex items-center justify-between text-xs font-medium text-amber-800 py-2 px-2 hover:bg-amber-50 rounded mb-3"
-      >
-        <span>📝 Stage Notes</span>
-        <ChevronDown size={14} className={`transition-transform ${showNotes ? 'rotate-180' : ''}`} />
-      </button>
-
-      {showNotes && (
-        <div className="bg-amber-50 rounded p-3 mb-3 space-y-2 text-xs">
-          {req.s1_note && <div><span className="font-semibold text-amber-900">✅ S1 (Avisha):</span> {req.s1_note}</div>}
-          {req.director_note && <div><span className="font-semibold text-amber-900">✅ Director:</span> {req.director_note}</div>}
-          {req.s2_note && <div><span className="font-semibold text-amber-900">✅ S2:</span> {req.s2_note}</div>}
-          {req.s3_note && <div><span className="font-semibold text-amber-900">✅ Finance (S3):</span> {req.s3_note}</div>}
-          {!req.s1_note && !req.s2_note && !req.s3_note && !req.director_note && (
-            <div className="text-amber-600 italic">No notes recorded</div>
+      {/* Repeat rejection warning */}
+      {req.founder_rejection_count > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
+          <div className="text-xs font-semibold text-red-800">⚠️ Previously rejected {req.founder_rejection_count} time(s)</div>
+          {req.founder_gate_comment && (
+            <div className="text-xs text-red-700 mt-1 italic">Last comment: "{req.founder_gate_comment}"</div>
           )}
         </div>
       )}
+
+      {/* Approval trail — always visible so Founder can see each stage's notes */}
+      <div className="border border-amber-100 rounded-lg p-3 mb-4 bg-white/50">
+        <div className="text-xs font-bold text-amber-900 mb-2">📋 Approval Trail</div>
+        <div className="space-y-2">
+          {stageLabel(req.approval_route, 's1') && (
+            <div className="flex gap-2 text-xs">
+              <span className="text-green-600 mt-0.5">●</span>
+              <div>
+                <span className="font-semibold text-gray-800">{stageLabel(req.approval_route, 's1')}</span>
+                {s1Note
+                  ? <p className="text-gray-600 mt-0.5 italic">"{s1Note}"</p>
+                  : <p className="text-amber-500 mt-0.5 italic">No note recorded</p>}
+              </div>
+            </div>
+          )}
+          {stageLabel(req.approval_route, 's2') && (
+            <div className="flex gap-2 text-xs">
+              <span className="text-green-600 mt-0.5">●</span>
+              <div>
+                <span className="font-semibold text-gray-800">{stageLabel(req.approval_route, 's2')}</span>
+                {s2Note
+                  ? <p className="text-gray-600 mt-0.5 italic">"{s2Note}"</p>
+                  : <p className="text-amber-500 mt-0.5 italic">No note recorded</p>}
+              </div>
+            </div>
+          )}
+          {stageLabel(req.approval_route, 'director') && dirNote && (
+            <div className="flex gap-2 text-xs">
+              <span className="text-blue-600 mt-0.5">●</span>
+              <div>
+                <span className="font-semibold text-gray-800">{stageLabel(req.approval_route, 'director')}</span>
+                <p className="text-gray-600 mt-0.5 italic">"{dirNote}"</p>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 text-xs">
+            <span className="text-purple-600 mt-0.5">●</span>
+            <div>
+              <span className="font-semibold text-gray-800">✅ Finance — Reviewed</span>
+              {s3Note
+                ? <p className="text-gray-600 mt-0.5 italic">"{s3Note}"</p>
+                : <p className="text-amber-500 mt-0.5 italic">No note recorded</p>}
+            </div>
+          </div>
+        </div>
+        {!hasAnyNote && (
+          <div className="text-xs text-amber-500 italic mt-2">No reviewer notes have been recorded for this request.</div>
+        )}
+      </div>
 
       {!isReviewed && (
         <>
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="Add a comment (optional)"
+            placeholder="Add your comment (required for rejection, recommended for approval)"
             rows={2}
-            className="w-full text-xs p-2 border border-amber-200 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            className="w-full text-xs p-2 border border-amber-200 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
           />
 
           <div className="flex gap-2">
             <button
               onClick={() => onApprove(req.id, comment)}
               disabled={loading}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition"
+              className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 rounded-lg transition active:scale-95"
             >
               {loading ? '…' : '✅ APPROVE'}
             </button>
@@ -164,7 +252,7 @@ function ApprovalCard({
                 onReject(req.id, comment)
               }}
               disabled={loading}
-              className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-medium py-2 rounded transition"
+              className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 rounded-lg transition active:scale-95"
             >
               {loading ? '…' : '❌ REJECT'}
             </button>
@@ -173,15 +261,15 @@ function ApprovalCard({
       )}
 
       {isReviewed && (
-        <div className="bg-amber-50 rounded p-3 text-xs">
-          <div className="font-semibold text-amber-900 mb-1">
-            {req.founder_gate_status === 'approved' ? '✅ Approved' : '❌ Rejected'}
+        <div className={`rounded-lg p-3 text-xs ${req.founder_gate_status === 'approved' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          <div className={`font-semibold mb-1 ${req.founder_gate_status === 'approved' ? 'text-green-800' : 'text-red-800'}`}>
+            {req.founder_gate_status === 'approved' ? '✅ Approved by you' : '❌ Rejected by you'}
           </div>
-          <div className="text-amber-700">
-            {new Date(req.founder_gate_reviewed_at!).toLocaleDateString('en-IN')}
+          <div className="text-gray-600">
+            {new Date(req.founder_gate_reviewed_at!).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
           </div>
           {req.founder_gate_comment && (
-            <div className="text-amber-700 mt-2 italic">"{req.founder_gate_comment}"</div>
+            <div className="text-gray-700 mt-1.5 italic">"{req.founder_gate_comment}"</div>
           )}
         </div>
       )}
