@@ -15,6 +15,7 @@ const BORDER_GLOW: Record<string, string> = {
   'border-emerald-500': '0 0 24px 4px rgba(16,185,129,0.30)',
   'border-purple-400':  '0 0 24px 4px rgba(167,139,250,0.30)',
   'border-blue-400':    '0 0 24px 4px rgba(96,165,250,0.30)',
+  'border-indigo-400':  '0 0 24px 4px rgba(129,140,248,0.30)',
 }
 
 const CARD_SHADOW_BASE = '0 4px 16px rgba(146,64,14,0.10), 0 1px 4px rgba(0,0,0,0.06)'

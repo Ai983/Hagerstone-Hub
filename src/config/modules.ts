@@ -65,6 +65,15 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     borderColor: 'border-pink-400',
     icon: '📣',
   },
+  {
+    id: 'scraper',
+    name: 'Data Scraper',
+    description: 'Web scraping · Data extraction',
+    url: 'https://scraper-application-v2.vercel.app/',
+    color: 'bg-indigo-50',
+    borderColor: 'border-indigo-400',
+    icon: '🔍',
+  },
 ]
 
 export const getModule = (id: string) => MODULE_REGISTRY.find(m => m.id === id)
