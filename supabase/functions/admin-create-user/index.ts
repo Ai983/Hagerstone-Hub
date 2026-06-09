@@ -7,12 +7,15 @@ const corsHeaders = {
 }
 
 function generateTempPassword(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let password = 'H@'
-  for (let i = 0; i < 8; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return password
+  // Simple format: Hager + 4 digits + 3 uppercase letters
+  // No special characters — easy to type on any mobile keyboard without autocorrect fights
+  const digits = '23456789'
+  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  let d = ''
+  for (let i = 0; i < 4; i++) d += digits[Math.floor(Math.random() * digits.length)]
+  let u = ''
+  for (let i = 0; i < 3; i++) u += uppers[Math.floor(Math.random() * uppers.length)]
+  return `Hager${d}${u}`
 }
 
 serve(async (req) => {
@@ -130,7 +133,7 @@ serve(async (req) => {
       department: department || null,
       role,
       employee_code: employeeCode,
-      must_change_password: false,
+      must_change_password: !linkedExisting,
     })
     .select()
     .single()

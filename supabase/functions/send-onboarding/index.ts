@@ -4,7 +4,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
 const MAYTAPI_PHONE_ID = '46821'
 const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
-const HUB_URL = 'https://app.hagerstone.in'
+// Hub login URL sent in the onboarding WhatsApp. Override via HUB_PUBLIC_URL
+// once a custom domain is live; defaults to the current Vercel URL.
+const HUB_URL = (Deno.env.get('HUB_PUBLIC_URL') ?? 'https://hagerstone-hub.vercel.app') + '/login'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,10 +14,15 @@ const corsHeaders = {
 }
 
 function generateTempPassword(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let p = 'H@'
-  for (let i = 0; i < 8; i++) p += chars[Math.floor(Math.random() * chars.length)]
-  return p
+  // Simple format: Hager + 4 digits + 3 uppercase letters
+  // No special characters — easy to type on any mobile keyboard without autocorrect fights
+  const digits = '23456789'
+  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  let d = ''
+  for (let i = 0; i < 4; i++) d += digits[Math.floor(Math.random() * digits.length)]
+  let u = ''
+  for (let i = 0; i < 3; i++) u += uppers[Math.floor(Math.random() * uppers.length)]
+  return `Hager${d}${u}`
 }
 
 serve(async (req) => {
@@ -74,7 +81,7 @@ serve(async (req) => {
   const results: Record<string, string> = {}
 
   if (channels.includes('whatsapp') && emp.phone) {
-    const message = `Hi ${emp.name}, welcome to Hagerstone Hub! 🎉\n\nYour account is ready.\n\nLogin: ${emp.email}\nTemp Password: ${tempPassword}\n\nOpen Hub: ${HUB_URL}\n\nPlease change your password on first login. Your existing app credentials are unchanged.\n\n— Hagerstone IT`
+    const message = `Hi ${emp.name}, welcome to Hagerstone Hub! 🎉\n\nYour account is ready.\n\nLogin: ${emp.email}\nTemp Password: ${tempPassword}\n\nOpen Hub: ${HUB_URL}\n\n⚠️ IMPORTANT: Please open the above link in Chrome or Safari browser (not inside WhatsApp).\n\nYou will be asked to set a new password on first login.\n\n— Hagerstone IT`
 
     const phone = emp.phone.replace(/\D/g, '')
     const toNumber = phone.startsWith('91') ? phone : `91${phone}`
