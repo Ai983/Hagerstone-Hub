@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
-import { ArrowLeft, LogOut } from 'lucide-react'
+import { ArrowLeft, LogOut, Pencil } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { useState } from 'react'
@@ -20,6 +20,7 @@ interface ApprovalRequest {
   approved_amount: number
   old_balance_deducted?: number
   net_approved_amount?: number
+  founder_adjusted_amount?: number | null
   submitted_at: string
   approval_route: string
   // canonical note columns (written by backend after the fix)
@@ -34,9 +35,19 @@ interface ApprovalRequest {
   founder_gate_comment?: string
   founder_gate_status?: 'approved' | 'rejected'
   founder_gate_reviewed_at?: string
+  // payment status (for the Approved tab)
+  paid?: boolean
+  paid_amount?: number
+  paid_at?: string
 }
 
+type Tab = 'pending' | 'approved' | 'rejected'
+
 const FINANCE_API = import.meta.env.VITE_FINANCE_API_URL || 'http://localhost:4000'
+
+const inr = (n?: number | null) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`
+const fmtDate = (iso?: string) =>
+  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
 async function fetchFounderQueue(token: string) {
   const response = await fetch(`${FINANCE_API}/api/imprest/founder/queue`, {
@@ -47,16 +58,27 @@ async function fetchFounderQueue(token: string) {
   return json.data ?? json
 }
 
-async function approveGate(id: string, comment: string, token: string) {
+async function fetchFounderHistory(token: string) {
+  const response = await fetch(`${FINANCE_API}/api/imprest/founder/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) throw new Error(`Failed to fetch: ${response.statusText}`)
+  const json = await response.json()
+  return json.data ?? json
+}
+
+async function approveGate(id: string, comment: string, token: string, adjustedAmount?: number) {
+  const body: Record<string, unknown> = { founderGateComment: comment }
+  if (adjustedAmount != null) body.adjustedAmount = adjustedAmount
   const response = await fetch(`${FINANCE_API}/api/imprest/${id}/founder-gate-approve`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ founderGateComment: comment }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`Failed to approve: ${response.statusText}`)
+  if (!response.ok) {
+    const msg = await response.json().catch(() => null)
+    throw new Error(msg?.error || `Failed to approve: ${response.statusText}`)
+  }
   return response.json()
 }
 
@@ -64,13 +86,13 @@ async function rejectGate(id: string, comment: string, token: string) {
   if (!comment?.trim()) throw new Error('Rejection comment is required')
   const response = await fetch(`${FINANCE_API}/api/imprest/${id}/founder-gate-reject`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ founderGateComment: comment }),
   })
-  if (!response.ok) throw new Error(`Failed to reject: ${response.statusText}`)
+  if (!response.ok) {
+    const msg = await response.json().catch(() => null)
+    throw new Error(msg?.error || `Failed to reject: ${response.statusText}`)
+  }
   return response.json()
 }
 
@@ -87,19 +109,21 @@ function stageLabel(route: string, stage: 's1' | 's2' | 'director' | 's3') {
 
 function ApprovalCard({
   req,
-  isReviewed,
+  mode,
   onApprove,
   onReject,
   loading,
 }: {
   req: ApprovalRequest
-  isReviewed: boolean
-  onApprove: (id: string, comment: string) => void
+  mode: Tab
+  onApprove: (id: string, comment: string, adjustedAmount?: number) => void
   onReject: (id: string, comment: string) => void
   loading: boolean
 }) {
   const [comment, setComment] = useState('')
-  const daysAgo = Math.floor((Date.now() - new Date(req.submitted_at).getTime()) / (24 * 60 * 60 * 1000))
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const currentAmount = Number(req.approved_amount || req.amount_requested || 0)
+  const [adjustValue, setAdjustValue] = useState<string>(String(currentAmount))
 
   // Resolve route label
   const routeLabel =
@@ -114,14 +138,39 @@ function ApprovalCard({
   const s2Note = req.s2_note || req.s2_notes || null
   const s3Note = req.s3_note || null
   const dirNote = req.director_note || null
-
   const hasAnyNote = !!(s1Note || s2Note || s3Note || dirNote)
 
   const netAmount = req.net_approved_amount ?? (
     req.old_balance_deducted && req.old_balance_deducted > 0
-      ? (req.approved_amount || req.amount_requested) - req.old_balance_deducted
-      : (req.approved_amount || req.amount_requested)
+      ? currentAmount - req.old_balance_deducted
+      : currentAmount
   )
+
+  const adjusted = req.founder_adjusted_amount != null ? Number(req.founder_adjusted_amount) : null
+
+  const handleApproveClick = () => {
+    let amount: number | undefined
+    if (adjustOpen) {
+      const v = Number(adjustValue)
+      if (!Number.isFinite(v) || v <= 0) {
+        toast.error('Enter a valid amount')
+        return
+      }
+      if (v > currentAmount) {
+        toast.error(`Amount can only be reduced (max ${inr(currentAmount)})`)
+        return
+      }
+      // Only counts as an adjustment if it actually differs
+      if (Math.round(v * 100) !== Math.round(currentAmount * 100)) {
+        if (!comment.trim()) {
+          toast.error('A note is required when you change the amount')
+          return
+        }
+        amount = v
+      }
+    }
+    onApprove(req.id, comment, amount)
+  }
 
   return (
     <motion.div
@@ -143,22 +192,35 @@ function ApprovalCard({
       </div>
 
       {/* Amount block */}
-      <div className="bg-amber-50 rounded-lg p-3 mb-3 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-amber-600 font-medium">Approved Amount</div>
-          <div className="text-lg font-bold text-amber-900">
-            ₹{(req.approved_amount || req.amount_requested)?.toLocaleString('en-IN')}
-          </div>
-          {(req.old_balance_deducted ?? 0) > 0 && (
-            <div className="text-xs text-orange-700 mt-0.5">
-              ⚠ Old balance deducted: ₹{req.old_balance_deducted?.toLocaleString('en-IN')} → Net payable: ₹{netAmount?.toLocaleString('en-IN')}
+      <div className="bg-amber-50 rounded-lg p-3 mb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-amber-600 font-medium">
+              {adjusted != null ? 'Finance Approved' : 'Approved Amount'}
             </div>
-          )}
+            <div className={`text-lg font-bold text-amber-900 ${adjusted != null ? 'line-through opacity-60 text-base' : ''}`}>
+              {inr(currentAmount)}
+            </div>
+            {adjusted == null && (req.old_balance_deducted ?? 0) > 0 && (
+              <div className="text-xs text-orange-700 mt-0.5">
+                ⚠ Old balance deducted: {inr(req.old_balance_deducted)} → Net payable: {inr(netAmount)}
+              </div>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-amber-600">{req.category}</div>
+            <div className="text-xs text-amber-500 mt-0.5">{fmtDate(req.submitted_at)}</div>
+          </div>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-amber-600">{req.category}</div>
-          <div className="text-xs text-amber-500 mt-0.5">{daysAgo}d ago</div>
-        </div>
+
+        {/* Founder-adjusted payout (exact amount Finance will pay) */}
+        {adjusted != null && (
+          <div className="mt-2 pt-2 border-t border-amber-200 flex items-center gap-2">
+            <Pencil size={13} className="text-emerald-700" />
+            <span className="text-xs text-emerald-800 font-medium">Founder set payout:</span>
+            <span className="text-lg font-bold text-emerald-800">{inr(adjusted)}</span>
+          </div>
+        )}
       </div>
 
       {req.purpose && (
@@ -166,7 +228,7 @@ function ApprovalCard({
       )}
 
       {/* Repeat rejection warning */}
-      {req.founder_rejection_count > 0 && (
+      {req.founder_rejection_count > 0 && mode === 'pending' && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
           <div className="text-xs font-semibold text-red-800">⚠️ Previously rejected {req.founder_rejection_count} time(s)</div>
           {req.founder_gate_comment && (
@@ -225,19 +287,58 @@ function ApprovalCard({
         )}
       </div>
 
-      {!isReviewed && (
+      {/* PENDING: adjust amount + approve / reject */}
+      {mode === 'pending' && (
         <>
+          {/* Adjust amount control */}
+          <div className="mb-3">
+            {!adjustOpen ? (
+              <button
+                onClick={() => { setAdjustOpen(true); setAdjustValue(String(currentAmount)) }}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-50 transition"
+              >
+                <Pencil size={12} /> Adjust amount
+              </button>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-amber-800">Adjusted payout (can only be reduced)</label>
+                  <button
+                    onClick={() => { setAdjustOpen(false); setAdjustValue(String(currentAmount)) }}
+                    className="text-xs text-amber-500 hover:text-amber-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-700 font-semibold">₹</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={currentAmount}
+                    value={adjustValue}
+                    onChange={(e) => setAdjustValue(e.target.value)}
+                    className="flex-1 text-sm p-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+                <p className="text-[11px] text-amber-600 mt-1">
+                  Max {inr(currentAmount)}. Finance will pay exactly this amount. A note is required when you change it.
+                </p>
+              </div>
+            )}
+          </div>
+
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="Add your comment (required for rejection, recommended for approval)"
+            placeholder="Add your note (required for rejection or amount change, recommended for approval)"
             rows={2}
             className="w-full text-xs p-2 border border-amber-200 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
           />
 
           <div className="flex gap-2">
             <button
-              onClick={() => onApprove(req.id, comment)}
+              onClick={handleApproveClick}
               disabled={loading}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 rounded-lg transition active:scale-95"
             >
@@ -260,16 +361,38 @@ function ApprovalCard({
         </>
       )}
 
-      {isReviewed && (
-        <div className={`rounded-lg p-3 text-xs ${req.founder_gate_status === 'approved' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-          <div className={`font-semibold mb-1 ${req.founder_gate_status === 'approved' ? 'text-green-800' : 'text-red-800'}`}>
-            {req.founder_gate_status === 'approved' ? '✅ Approved by you' : '❌ Rejected by you'}
-          </div>
-          <div className="text-gray-600">
-            {new Date(req.founder_gate_reviewed_at!).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+      {/* APPROVED: decision summary + payment status */}
+      {mode === 'approved' && (
+        <div className="rounded-lg p-3 text-xs bg-green-50 border border-green-200 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-green-800">✅ Approved by you</span>
+            <span className="text-gray-600">{fmtDate(req.founder_gate_reviewed_at)}</span>
           </div>
           {req.founder_gate_comment && (
-            <div className="text-gray-700 mt-1.5 italic">"{req.founder_gate_comment}"</div>
+            <div className="text-gray-700 italic">"{req.founder_gate_comment}"</div>
+          )}
+          {/* Payment status */}
+          {req.paid ? (
+            <div className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 font-medium rounded-full px-2.5 py-1">
+              ✅ Paid {inr(req.paid_amount)}{req.paid_at ? ` on ${fmtDate(req.paid_at)}` : ''}
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 font-medium rounded-full px-2.5 py-1">
+              🟡 Payment pending from Finance
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* REJECTED: decision summary */}
+      {mode === 'rejected' && (
+        <div className="rounded-lg p-3 text-xs bg-red-50 border border-red-200">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-semibold text-red-800">❌ Rejected by you</span>
+            <span className="text-gray-600">{fmtDate(req.founder_gate_reviewed_at)}</span>
+          </div>
+          {req.founder_gate_comment && (
+            <div className="text-gray-700 italic">"{req.founder_gate_comment}"</div>
           )}
         </div>
       )}
@@ -280,11 +403,15 @@ function ApprovalCard({
 export function ApprovalsPage() {
   const { employee, signOut } = useAuth()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'pending' | 'reviewed'>('pending')
+  const [activeTab, setActiveTab] = useState<Tab>('pending')
   const [actingId, setActingId] = useState<string | null>(null)
+
+  const role = employee?.role
+  const allowed = role === 'founder' || role === 'admin'
 
   const queueQuery = useQuery({
     queryKey: ['imprest_founder_queue'],
+    enabled: allowed,
     queryFn: async () => {
       const { data: sessionData } = await supabase.auth.getSession()
       if (!sessionData.session) throw new Error('No session')
@@ -293,16 +420,29 @@ export function ApprovalsPage() {
     refetchInterval: 30000,
   })
 
-  const handleApprove = async (id: string, comment: string) => {
+  const historyQuery = useQuery({
+    queryKey: ['imprest_founder_history'],
+    enabled: allowed,
+    queryFn: async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) throw new Error('No session')
+      return fetchFounderHistory(sessionData.session.access_token)
+    },
+    refetchInterval: 30000,
+  })
+
+  const refetchAll = () => { queueQuery.refetch(); historyQuery.refetch() }
+
+  const handleApprove = async (id: string, comment: string, adjustedAmount?: number) => {
     try {
       setActingId(id)
       const { data: sessionData } = await supabase.auth.getSession()
       if (!sessionData.session) throw new Error('No session')
-      await approveGate(id, comment, sessionData.session.access_token)
-      toast.success('Approved!')
-      queueQuery.refetch()
-    } catch (err: any) {
-      toast.error(err.message)
+      await approveGate(id, comment, sessionData.session.access_token, adjustedAmount)
+      toast.success(adjustedAmount != null ? `Approved at ${inr(adjustedAmount)}!` : 'Approved!')
+      refetchAll()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve')
     } finally {
       setActingId(null)
     }
@@ -315,9 +455,9 @@ export function ApprovalsPage() {
       if (!sessionData.session) throw new Error('No session')
       await rejectGate(id, comment, sessionData.session.access_token)
       toast.success('Rejected!')
-      queueQuery.refetch()
-    } catch (err: any) {
-      toast.error(err.message)
+      refetchAll()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reject')
     } finally {
       setActingId(null)
     }
@@ -328,20 +468,26 @@ export function ApprovalsPage() {
     navigate('/login')
   }
 
-  const role = employee?.role
-  const allowed = role === 'founder' || role === 'admin'
-
   if (!employee) return null
   if (!allowed) {
     navigate('/dashboard')
     return null
   }
 
-  const requests = queueQuery.data?.requests || []
-  const pending = requests.filter((r: ApprovalRequest) => !r.founder_gate_status)
-  const reviewed = requests.filter((r: ApprovalRequest) => r.founder_gate_status)
+  const pending: ApprovalRequest[] = queueQuery.data?.requests || []
+  const history: ApprovalRequest[] = historyQuery.data?.requests || []
+  const approved = history.filter((r) => r.founder_gate_status === 'approved')
+  const rejected = history.filter((r) => r.founder_gate_status === 'rejected')
 
-  const displayRequests = activeTab === 'pending' ? pending : reviewed
+  const displayRequests = activeTab === 'pending' ? pending : activeTab === 'approved' ? approved : rejected
+  const isLoading = activeTab === 'pending' ? queueQuery.isLoading : historyQuery.isLoading
+  const isError = activeTab === 'pending' ? queueQuery.isError : historyQuery.isError
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'pending', label: 'Pending', count: pending.length },
+    { key: 'approved', label: 'Approved', count: approved.length },
+    { key: 'rejected', label: 'Rejected', count: rejected.length },
+  ]
 
   return (
     <div
@@ -375,54 +521,51 @@ export function ApprovalsPage() {
       <main className="max-w-5xl mx-auto px-6 py-10">
         {/* Tabs */}
         <div className="flex gap-2 mb-6 border-b border-amber-200">
-          <button
-            onClick={() => setActiveTab('pending')}
-            className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
-              activeTab === 'pending'
-                ? 'border-amber-600 text-amber-900'
-                : 'border-transparent text-amber-700 hover:text-amber-900'
-            }`}
-          >
-            Pending ({pending.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('reviewed')}
-            className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
-              activeTab === 'reviewed'
-                ? 'border-amber-600 text-amber-900'
-                : 'border-transparent text-amber-700 hover:text-amber-900'
-            }`}
-          >
-            Reviewed ({reviewed.length})
-          </button>
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
+                activeTab === t.key
+                  ? 'border-amber-600 text-amber-900'
+                  : 'border-transparent text-amber-700 hover:text-amber-900'
+              }`}
+            >
+              {t.label} ({t.count})
+            </button>
+          ))}
         </div>
 
         {/* Loading */}
-        {queueQuery.isLoading && (
+        {isLoading && (
           <div className="text-center py-10 text-amber-700 animate-pulse">Loading approvals…</div>
         )}
 
         {/* Error */}
-        {queueQuery.isError && (
+        {isError && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800 text-sm">
             Failed to load approvals. Check your connection and try again.
           </div>
         )}
 
         {/* Empty */}
-        {!queueQuery.isLoading && displayRequests.length === 0 && (
+        {!isLoading && !isError && displayRequests.length === 0 && (
           <div className="text-center py-10 text-amber-700">
-            {activeTab === 'pending' ? 'No pending approvals' : 'No reviewed approvals yet'}
+            {activeTab === 'pending'
+              ? 'No pending approvals'
+              : activeTab === 'approved'
+              ? 'No approved requests yet'
+              : 'No rejected requests yet'}
           </div>
         )}
 
         {/* Cards */}
         <div className="space-y-4">
-          {displayRequests.map((req: ApprovalRequest) => (
+          {displayRequests.map((req) => (
             <ApprovalCard
               key={req.id}
               req={req}
-              isReviewed={activeTab === 'reviewed'}
+              mode={activeTab}
               onApprove={handleApprove}
               onReject={handleReject}
               loading={actingId === req.id}
