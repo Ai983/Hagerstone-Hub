@@ -13,6 +13,26 @@ export function useAuth(): AuthState {
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [loading, setLoading] = useState(true)
 
+  async function fetchEmployee(authUserId: string) {
+    const { data, error } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('auth_user_id', authUserId)
+      .eq('is_active', true)
+      .maybeSingle() // returns null (not a 406) when there is no matching row
+
+    if (error) {
+      // Transient/auth error (e.g. token not yet attached) — do NOT null out the
+      // employee, otherwise the user gets bounced back to the login screen.
+      console.warn('[useAuth] fetchEmployee failed:', error.message)
+      setLoading(false)
+      return
+    }
+
+    setEmployee(data ?? null)
+    setLoading(false)
+  }
+
   useEffect(() => {
     let active = true
 
@@ -40,26 +60,6 @@ export function useAuth(): AuthState {
 
     return () => { active = false; subscription.unsubscribe() }
   }, [])
-
-  async function fetchEmployee(authUserId: string) {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('auth_user_id', authUserId)
-      .eq('is_active', true)
-      .maybeSingle() // returns null (not a 406) when there is no matching row
-
-    if (error) {
-      // Transient/auth error (e.g. token not yet attached) — do NOT null out the
-      // employee, otherwise the user gets bounced back to the login screen.
-      console.warn('[useAuth] fetchEmployee failed:', error.message)
-      setLoading(false)
-      return
-    }
-
-    setEmployee(data ?? null)
-    setLoading(false)
-  }
 
   async function signOut() {
     await supabase.auth.signOut()

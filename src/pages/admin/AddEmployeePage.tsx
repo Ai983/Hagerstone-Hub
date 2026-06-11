@@ -183,7 +183,7 @@ export function AddEmployeePage() {
                   {copied ? <CheckCircle size={14} className="text-emerald-500" /> : <Copy size={14} />}
                 </Button>
               </div>
-              <p className="text-xs text-stone-400 mt-2">Share this with the employee. They must change it on first login.</p>
+              <p className="text-xs text-stone-400 mt-2">Share this with the employee. They sign in directly with this password.</p>
             </div>
           ) : null}
 

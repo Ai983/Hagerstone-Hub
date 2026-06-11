@@ -4,7 +4,6 @@ import { Toaster } from 'sonner'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FounderDashboard } from './pages/FounderDashboard'
-import { PasswordChangePage } from './components/PasswordChangeModal'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { HeadRoute } from './components/HeadRoute'
@@ -25,7 +24,6 @@ export default function App() {
         <Toaster position="top-right" richColors />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/change-password" element={<PasswordChangePage />} />
 
           <Route path="/dashboard" element={
             <ProtectedRoute>

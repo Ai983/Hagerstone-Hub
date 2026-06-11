@@ -121,7 +121,8 @@ serve(async (req) => {
 
   const employeeCode = `HAG-${String((count ?? 0) + 1).padStart(3, '0')}`
 
-  // Insert Hub identity. Existing users keep their current password (no forced change).
+  // Insert Hub identity. No forced password change — new users sign in directly
+  // with the temp password; linked users keep their existing CPS/Expense password.
   const { data: emp, error: empError } = await supabaseAdmin
     .from('employees')
     .insert({
@@ -133,7 +134,7 @@ serve(async (req) => {
       department: department || null,
       role,
       employee_code: employeeCode,
-      must_change_password: !linkedExisting,
+      must_change_password: false,
     })
     .select()
     .single()

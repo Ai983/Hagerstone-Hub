@@ -67,21 +67,21 @@ serve(async (req) => {
     }
     await supabase
       .from('employees')
-      .update({ auth_user_id: authData.user.id, must_change_password: true })
+      .update({ auth_user_id: authData.user.id, must_change_password: false })
       .eq('id', employee_id)
   } else {
     // Resend: reset password
     await supabase.auth.admin.updateUserById(emp.auth_user_id, { password: tempPassword })
     await supabase
       .from('employees')
-      .update({ must_change_password: true })
+      .update({ must_change_password: false })
       .eq('id', employee_id)
   }
 
   const results: Record<string, string> = {}
 
   if (channels.includes('whatsapp') && emp.phone) {
-    const message = `Hi ${emp.name}, welcome to Hagerstone Hub! 🎉\n\nYour account is ready.\n\nLogin: ${emp.email}\nTemp Password: ${tempPassword}\n\nOpen Hub: ${HUB_URL}\n\n⚠️ IMPORTANT: Please open the above link in Chrome or Safari browser (not inside WhatsApp).\n\nYou will be asked to set a new password on first login.\n\n— Hagerstone IT`
+    const message = `Hi ${emp.name}, welcome to Hagerstone Hub! 🎉\n\nYour account is ready.\n\nLogin: ${emp.email}\nPassword: ${tempPassword}\n\nOpen Hub: ${HUB_URL}\n\n⚠️ IMPORTANT: Please open the above link in Chrome or Safari browser (not inside WhatsApp).\n\nSign in with the email and password above.\n\n— Hagerstone IT`
 
     const phone = emp.phone.replace(/\D/g, '')
     const toNumber = phone.startsWith('91') ? phone : `91${phone}`
