@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '../components/ui/button'
-import { ArrowLeft, LogOut, Pencil } from 'lucide-react'
+import { ArrowLeft, LogOut, Pencil, Search, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { useState } from 'react'
@@ -405,6 +405,7 @@ export function ApprovalsPage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('pending')
   const [actingId, setActingId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const role = employee?.role
   const allowed = role === 'founder' || role === 'admin'
@@ -479,7 +480,12 @@ export function ApprovalsPage() {
   const approved = history.filter((r) => r.founder_gate_status === 'approved')
   const rejected = history.filter((r) => r.founder_gate_status === 'rejected')
 
-  const displayRequests = activeTab === 'pending' ? pending : activeTab === 'approved' ? approved : rejected
+  const baseList = activeTab === 'pending' ? pending : activeTab === 'approved' ? approved : rejected
+  const q = search.trim().toLowerCase()
+  const displayRequests = q
+    ? baseList.filter((r) =>
+        (r.employee?.name || '').toLowerCase().includes(q) || (r.ref_id || '').toLowerCase().includes(q))
+    : baseList
   const isLoading = activeTab === 'pending' ? queueQuery.isLoading : historyQuery.isLoading
   const isError = activeTab === 'pending' ? queueQuery.isError : historyQuery.isError
 
@@ -536,6 +542,27 @@ export function ApprovalsPage() {
           ))}
         </div>
 
+        {/* Search by employee name / ref id */}
+        <div className="relative mb-5">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by employee name or ref id…"
+            className="w-full pl-9 pr-9 py-2.5 text-sm bg-white/70 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-400 hover:text-amber-700"
+              aria-label="Clear search"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
         {/* Loading */}
         {isLoading && (
           <div className="text-center py-10 text-amber-700 animate-pulse">Loading approvals…</div>
@@ -551,7 +578,9 @@ export function ApprovalsPage() {
         {/* Empty */}
         {!isLoading && !isError && displayRequests.length === 0 && (
           <div className="text-center py-10 text-amber-700">
-            {activeTab === 'pending'
+            {q
+              ? `No matches for "${search.trim()}"`
+              : activeTab === 'pending'
               ? 'No pending approvals'
               : activeTab === 'approved'
               ? 'No approved requests yet'
