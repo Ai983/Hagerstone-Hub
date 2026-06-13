@@ -27,18 +27,53 @@ export function LoginPage() {
 
   const onSubmit = async (data: LoginForm) => {
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({
-      email: data.email,
-      password: data.password,
-    })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: data.email.trim(),
+        password: data.password,
+      })
 
-    if (error) {
-      toast.error('Invalid email or password')
+      if (error) {
+        // Distinguish a genuine bad-credential error from everything else
+        // (network/CORS/timeout/rate-limit/server). Showing one catch-all
+        // "Invalid email or password" message for every failure has caused
+        // real outages to be misdiagnosed as "users typed the wrong password".
+        const isBadCreds =
+          error.status === 400 &&
+          /invalid login credentials/i.test(error.message)
+
+        if (isBadCreds) {
+          toast.error('Invalid email or password')
+        } else if (error.status === 429) {
+          toast.error('Too many attempts — please wait a minute and try again.')
+        } else {
+          toast.error(
+            `Sign-in failed (${error.status ?? 'network'}): ${error.message}. ` +
+              'If this keeps happening, check your internet connection and device clock.'
+          )
+        }
+        // Always log the real error so support can read it from the console.
+        console.error('[login] sign-in error:', {
+          status: error.status,
+          name: error.name,
+          message: error.message,
+        })
+        setLoading(false)
+        return
+      }
+
+      navigate('/dashboard')
+    } catch (err) {
+      // signInWithPassword threw before reaching the server: almost always a
+      // network/DNS/firewall problem (e.g. office WiFi blocking *.supabase.co)
+      // or the device being offline — NOT a wrong password.
+      toast.error(
+        'Could not reach the sign-in server. Check your internet connection ' +
+          '(try mobile data) and try again.'
+      )
+      console.error('[login] network/transport error:', err)
       setLoading(false)
-      return
     }
-
-    navigate('/dashboard')
   }
 
   return (

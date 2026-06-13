@@ -47,3 +47,6 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# MCP server config — contains secret tokens (Railway API token, etc.)
+.mcp.json
