@@ -8,6 +8,7 @@ import { ArrowLeft, LogOut, AlertCircle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { DashboardFilters } from '../components/dashboard/founder/DashboardFilters'
+import { ChatbotWidget } from '../components/dashboard/founder/chatbot/ChatbotWidget'
 import { HeadlineKpis } from '../components/dashboard/founder/HeadlineKpis'
 import type { FilterState, HeadlineKpi, FinanceSummary, CpsSummary, ProjectCostRow, DelegationSummary } from '../components/dashboard/founder/types'
 import { useFounderRealtime } from '../components/dashboard/founder/useFounderRealtime'
@@ -370,6 +371,9 @@ export function FounderDashboard() {
           </div>
         </DeferUntilVisible>
       </main>
+
+      {/* Natural-language analytics chatbot — founders & admins only */}
+      {(role === 'founder' || role === 'admin') && <ChatbotWidget />}
     </div>
   )
 }
