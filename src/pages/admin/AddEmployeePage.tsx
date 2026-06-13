@@ -13,41 +13,8 @@ import { Switch } from '../../components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
 import { ArrowLeft, Copy, Send, CheckCircle } from 'lucide-react'
 import { MODULE_REGISTRY } from '../../config/modules'
-import type { RoleId, ModuleId, Employee } from '../../types'
-
-const ROLE_LABELS: Record<RoleId, string> = {
-  admin: 'Admin',
-  management: 'Management',
-  procurement: 'Procurement',
-  finance: 'Finance',
-  hr: 'HR',
-  project_manager: 'Project Manager',
-  site_engineer: 'Site Engineer',
-  ai: 'AI',
-  mis: 'MIS',
-  design: 'Design',
-  ea: 'Executive Assistant',
-  sales: 'Sales',
-  crm: 'CRM',
-  founder: 'Founder',
-}
-
-const ROLE_DEFAULT_MODULES: Record<RoleId, ModuleId[]> = {
-  admin:          ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  management:     ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  procurement:    ['attendance', 'cps', 'finance_employee'],
-  finance:        ['attendance', 'finance_admin', 'finance_employee'],
-  hr:             ['attendance', 'hireflow'],
-  project_manager:['attendance', 'cps', 'finance_employee'],
-  site_engineer:  ['attendance', 'finance_employee'],
-  ai:             ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  mis:            ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-  design:         ['attendance'],
-  ea:             ['attendance'],
-  sales:          ['attendance'],
-  crm:            ['attendance'],
-  founder:        ['attendance', 'cps', 'finance_admin', 'finance_employee', 'hireflow'],
-}
+import { ROLE_LABELS, ROLE_DEFAULT_MODULES } from '../../config/roles'
+import type { RoleId, Employee } from '../../types'
 
 const schema = z.object({
   name: z.string().min(2, 'Name is required'),

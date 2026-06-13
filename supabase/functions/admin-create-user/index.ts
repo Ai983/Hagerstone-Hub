@@ -1,21 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { generateTempPassword } from '../_shared/password.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-function generateTempPassword(): string {
-  // Simple format: Hager + 4 digits + 3 uppercase letters
-  // No special characters — easy to type on any mobile keyboard without autocorrect fights
-  const digits = '23456789'
-  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  let d = ''
-  for (let i = 0; i < 4; i++) d += digits[Math.floor(Math.random() * digits.length)]
-  let u = ''
-  for (let i = 0; i < 3; i++) u += uppers[Math.floor(Math.random() * uppers.length)]
-  return `Hager${d}${u}`
 }
 
 serve(async (req) => {

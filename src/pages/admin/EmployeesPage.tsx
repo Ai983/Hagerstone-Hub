@@ -11,24 +11,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '../../components/ui/table'
 import { UserPlus, Send, Edit, UserX, ArrowLeft } from 'lucide-react'
-import type { Employee, RoleId } from '../../types'
-
-const ROLE_LABELS: Record<RoleId, string> = {
-  admin: 'Admin',
-  management: 'Management',
-  procurement: 'Procurement',
-  finance: 'Finance',
-  hr: 'HR',
-  project_manager: 'Project Manager',
-  site_engineer: 'Site Engineer',
-  ai: 'AI',
-  mis: 'MIS',
-  design: 'Design',
-  ea: 'Executive Assistant',
-  sales: 'Sales',
-  crm: 'CRM',
-  founder: 'Founder',
-}
+import type { Employee } from '../../types'
+import { ROLE_LABELS } from '../../config/roles'
 
 export function EmployeesPage() {
   const navigate = useNavigate()
