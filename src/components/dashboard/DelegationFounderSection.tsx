@@ -10,24 +10,8 @@ import {
   type OrgFeedRow,
 } from '../../lib/delegation-scores'
 import { DelegationLeaderboard } from './DelegationLeaderboard'
-
-const LAUNCH_ROLES = [
-  'site_engineer', 'procurement', 'finance', 'mis',
-  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager', 'lcs',
-]
-const ROLE_LABELS: Record<string, string> = {
-  site_engineer:   'Site Eng.',
-  procurement:     'Procurement',
-  finance:         'Finance',
-  mis:             'MIS',
-  marketing:       'Marketing',
-  facade:          'Facade',
-  ai:              'AI',
-  hr:              'HR',
-  management:      'Management',
-  project_manager: 'Projects',
-  lcs:             'LCS',
-}
+import { DELEGATION_DEPARTMENTS, ROLE_LABELS, ROLE_SHORT_LABELS } from '../../config/roles'
+import type { RoleId } from '../../types'
 
 function fmtDateTime(s: string) {
   return new Date(s).toLocaleString('en-IN', {
@@ -85,7 +69,7 @@ export function DelegationFounderSection() {
 
       {/* Role-group KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {LAUNCH_ROLES.map((role) => {
+        {DELEGATION_DEPARTMENTS.map((role) => {
           const pendingCount = pending[role] ?? 0
           return (
             <div
@@ -93,7 +77,7 @@ export function DelegationFounderSection() {
               className="bg-white rounded-xl border border-stone-100 p-3"
               style={{ boxShadow: '0 2px 10px rgba(146,64,14,0.06)' }}
             >
-              <div className="text-xs text-stone-400 font-medium">{ROLE_LABELS[role]}</div>
+              <div className="text-xs text-stone-400 font-medium">{ROLE_SHORT_LABELS[role]}</div>
               <div className="text-2xl font-bold text-stone-800 mt-1 tabular-nums">
                 {orgTotals[role] ?? 0}
                 <span className="text-xs font-normal text-stone-400 ml-1">pts</span>
@@ -114,7 +98,7 @@ export function DelegationFounderSection() {
         {/* Leaderboards */}
         <div className="space-y-3">
           <h3 className="text-xs font-medium text-stone-500 uppercase tracking-wide">Per-Role Rankings</h3>
-          {LAUNCH_ROLES.map((role) => (
+          {DELEGATION_DEPARTMENTS.map((role) => (
             <DelegationLeaderboard
               key={role}
               roleGroup={role}
@@ -152,7 +136,7 @@ export function DelegationFounderSection() {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${statusBadge(row.status)}`}>
                             {row.status}
                           </span>
-                          <span className="text-xs text-stone-400">{ROLE_LABELS[row.role_group] ?? row.role_group}</span>
+                          <span className="text-xs text-stone-400">{ROLE_LABELS[row.role_group as RoleId] ?? row.role_group}</span>
                         </div>
                         <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">{row.reason}</p>
                       </div>
@@ -180,7 +164,7 @@ export function DelegationFounderSection() {
                     className="flex items-center justify-between bg-white rounded-xl border border-amber-100 px-3 py-2 text-xs"
                   >
                     <span className="text-stone-600 font-medium">
-                      🏆 {ROLE_LABELS[w.role_group] ?? w.role_group} · {w.period_type === 'week' ? 'Week' : 'Month'}
+                      🏆 {ROLE_LABELS[w.role_group as RoleId] ?? w.role_group} · {w.period_type === 'week' ? 'Week' : 'Month'}
                     </span>
                     <span className="text-stone-500">
                       {w.winners?.[0]?.name?.split(' ')[0] ?? '—'} · {w.winners?.[0]?.points ?? 0} pts

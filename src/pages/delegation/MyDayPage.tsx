@@ -26,13 +26,11 @@ import { LABELS, STAGE_EMPTY, type PillStatus } from '../../lib/delegation-ui'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { DELEGATION_ROLES, ROLE_SHORT_LABELS } from '../../config/roles'
+import { DELEGATION_POINTS } from '../../config/delegation-points'
 
 // All roles can access delegation — the task type dropdown controls what tasks are available
-const LAUNCH_ROLES = [
-  'site_engineer', 'procurement', 'finance', 'mis',
-  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager',
-  'lcs', 'admin', 'founder',
-]
+const LAUNCH_ROLES = DELEGATION_ROLES
 
 const ALLOWED_TYPES = [
   'application/pdf',
@@ -467,19 +465,15 @@ interface CreateFormProps {
   onCreated: () => void
 }
 
-// Points per tier for display
-const TIER_PTS: Record<string, number> = { S: 5, M: 10, L: 20, XL: 40 }
+// Points per tier for display — mirrors the canonical delegation point values
+const TIER_PTS: Record<string, number> = DELEGATION_POINTS.tier
 const TIER_COLOR: Record<string, string> = {
   S:  'bg-sky-100 text-sky-700 border-sky-200',
   M:  'bg-violet-100 text-violet-700 border-violet-200',
   L:  'bg-amber-100 text-amber-700 border-amber-200',
   XL: 'bg-rose-100 text-rose-700 border-rose-200',
 }
-const DEPT_LABEL: Record<string, string> = {
-  site_engineer: 'Site Eng', procurement: 'Procure', finance: 'Finance',
-  mis: 'MIS', ai: 'AI/IT', facade: 'Design', marketing: 'Marketing',
-  hr: 'HR', management: 'Mgmt', project_manager: 'Projects', lcs: 'LCS',
-}
+const DEPT_LABEL: Record<string, string> = ROLE_SHORT_LABELS
 
 function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
   const isHead    = employee.is_head

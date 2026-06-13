@@ -10,13 +10,7 @@ import { GamificationSection } from '../components/dashboard/GamificationSection
 import { getPlacement } from '../lib/gamification'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { FounderAvatar } from '../components/FounderAvatar'
-
-// All active employees can access delegation — task types per role control what they can create
-const DELEGATION_ROLES = [
-  'site_engineer', 'procurement', 'finance', 'mis',
-  'marketing', 'facade', 'ai', 'hr', 'management', 'project_manager',
-  'lcs', 'admin', 'founder',
-]
+import { DELEGATION_ROLES } from '../config/roles'
 
 export function DashboardPage() {
   const { employee, isAdmin, signOut } = useAuth()
