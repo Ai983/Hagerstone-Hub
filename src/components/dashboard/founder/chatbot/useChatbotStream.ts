@@ -69,8 +69,11 @@ export function useChatbotStream() {
           case 'meta':
             conversationId.current = evt.conversationId
             break
+          case 'status':
+            patchLast((m) => ({ ...m, phase: evt.label }))
+            break
           case 'text':
-            patchLast((m) => ({ ...m, text: m.text + evt.delta }))
+            patchLast((m) => ({ ...m, text: m.text + evt.delta, phase: undefined }))
             break
           case 'sql':
             patchLast((m) => ({ ...m, sqlLog: [...m.sqlLog, { sql: evt.sql, rows: evt.rows, error: evt.error }] }))
@@ -80,7 +83,7 @@ export function useChatbotStream() {
             break
           case 'done':
             conversationId.current = evt.conversationId
-            patchLast((m) => ({ ...m, streaming: false }))
+            patchLast((m) => ({ ...m, streaming: false, phase: undefined }))
             break
           case 'error':
             patchLast((m) => ({

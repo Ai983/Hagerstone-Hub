@@ -1,6 +1,7 @@
 // Founder Dashboard analytics chatbot — read-only natural-language -> SQL.
-// Founder/admin only. Streams NDJSON events to the browser. Calls the Anthropic
-// Messages API directly (raw fetch) with a two-tool loop: run_sql + present_result.
+// Founder/admin only. Streams NDJSON to the browser. Calls the Anthropic Messages
+// API (raw fetch). Tools: run_sql, sample_distinct, lookup_person, present_result.
+// A curated business-rules layer (chatbot_semantics_doc) makes answers accurate.
 // All SQL goes through public.chatbot_exec_sql (read-only, guarded). See migrations.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -15,9 +16,16 @@ const corsHeaders = {
 
 const MODEL = 'claude-sonnet-4-6'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MAX_TOOL_ITERS = 6
+const MAX_TOOL_ITERS = 10
 const ROW_CAP = 200
 const MAX_RESULT_CHARS = 12000
+// Extended thinking is opt-in: enabled thinking blocks must be replayed (with their
+// signature) on every follow-up tool turn. Capture logic below supports it; default OFF.
+const THINKING = (Deno.env.get('CHATBOT_THINKING') ?? 'off').toLowerCase()
+const THINKING_ON = THINKING === 'on' || THINKING === 'adaptive'
+
+const ALLOWED_SCHEMAS = new Set(['public', 'cps', 'cps_archive', 'finance', 'facade', 'marketing', 'lcs', 'scraper'])
+const IDENT = /^[a-z_][a-z0-9_]*$/
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -26,30 +34,55 @@ function json(body: unknown, status = 200) {
   })
 }
 
-// ── Schema catalog: fetched once per cold start, cached in the warm isolate ────
-let CATALOG_CACHE: { systemPrompt: string; fingerprint: string } | null = null
-
+// ── System prompt (catalog + business rules): fetched once per cold start ───────
+let SYSTEM_CACHE: string | null = null
 async function getSystemPrompt(admin: ReturnType<typeof createClient>): Promise<string> {
-  if (CATALOG_CACHE) return CATALOG_CACHE.systemPrompt
-  const { data, error } = await admin.rpc('chatbot_schema_catalog')
-  if (error) throw new Error(`schema catalog failed: ${error.message}`)
-  const catalogJson = JSON.stringify(data)
-  const fingerprint = (data as { fingerprint?: string })?.fingerprint ?? ''
-  const systemPrompt = buildSystemPrompt(catalogJson)
-  CATALOG_CACHE = { systemPrompt, fingerprint }
-  return systemPrompt
+  if (SYSTEM_CACHE) return SYSTEM_CACHE
+  const [{ data: catalog, error: catErr }, { data: semantics, error: semErr }] = await Promise.all([
+    admin.rpc('chatbot_schema_catalog'),
+    admin.rpc('chatbot_semantics_doc'),
+  ])
+  if (catErr) throw new Error(`schema catalog failed: ${catErr.message}`)
+  if (semErr) throw new Error(`semantics doc failed: ${semErr.message}`)
+  SYSTEM_CACHE = buildSystemPrompt(JSON.stringify(catalog), String(semantics ?? ''))
+  return SYSTEM_CACHE
 }
 
-// ── Tool definitions ──────────────────────────────────────────────────────────
+// ── Tools ───────────────────────────────────────────────────────────────────────
 const TOOLS = [
   {
     name: 'run_sql',
     description:
-      'Run ONE read-only PostgreSQL SELECT/WITH query against the business schemas and get the rows back as JSON. Always schema-qualify tables and include a LIMIT (<=200) unless using aggregates. Use this to ground every fact.',
+      'Run ONE read-only PostgreSQL SELECT/WITH query against the business schemas and get rows back as JSON. Always schema-qualify tables and include a LIMIT (<=200) unless using aggregates. Ground every fact with this.',
     input_schema: {
       type: 'object',
       properties: { sql: { type: 'string', description: 'A single SELECT or WITH query.' } },
       required: ['sql'],
+    },
+  },
+  {
+    name: 'sample_distinct',
+    description:
+      'Get the top distinct values (with counts) of a column, to confirm a status/category vocabulary or find an id before filtering. Use this whenever unsure of an exact stored value.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        schema: { type: 'string' },
+        table: { type: 'string' },
+        column: { type: 'string' },
+        limit: { type: 'integer', description: 'Max distinct values (default 30, max 50).' },
+      },
+      required: ['schema', 'table', 'column'],
+    },
+  },
+  {
+    name: 'lookup_person',
+    description:
+      'Resolve a person name to candidate ids across all identity tables (public.employees, cps.cps_users, finance.employees, marketing.profiles, lcs.workers/contractor_profiles). Returns {module, table, id, name, email, role}. Call before filtering by a person.',
+    input_schema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
     },
   },
   {
@@ -94,6 +127,17 @@ const TOOLS = [
 
 type Send = (obj: Record<string, unknown>) => void
 
+// Validate + build a safe sample_distinct query (identifiers only, allowed schemas).
+function buildSampleSql(input: any): string | null {
+  const schema = String(input?.schema ?? '').toLowerCase()
+  const table = String(input?.table ?? '')
+  const column = String(input?.column ?? '')
+  const limit = Math.min(Math.max(parseInt(String(input?.limit ?? '30'), 10) || 30, 1), 50)
+  if (!ALLOWED_SCHEMAS.has(schema)) return null
+  if (!IDENT.test(table) || !IDENT.test(column)) return null
+  return `select ${column} as value, count(*) as n from ${schema}.${table} group by 1 order by 2 desc limit ${limit}`
+}
+
 // ── One streamed Anthropic turn: forwards text deltas, assembles content blocks ─
 async function runClaudeTurn(
   apiKey: string,
@@ -101,28 +145,21 @@ async function runClaudeTurn(
   messages: unknown[],
   send: Send,
 ): Promise<{ content: any[]; stopReason: string | null; usage: any }> {
+  const reqBody: Record<string, unknown> = {
+    model: MODEL,
+    max_tokens: 8000,
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    tools: TOOLS,
+    messages,
+    stream: true,
+  }
+  if (THINKING_ON) reqBody.thinking = { type: 'adaptive' }
+
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 8000,
-      // Thinking is intentionally OFF: with the tool-use loop, an enabled thinking
-      // block must be replayed back to the API with its signature on every follow-up
-      // turn. Streaming + a hand-rolled parser makes that fragile, and it caused
-      // follow-up requests to be rejected. Sonnet 4.6 reasons fine via the
-      // query -> inspect -> refine tool loop without it.
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools: TOOLS,
-      messages,
-      stream: true,
-    }),
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify(reqBody),
   })
-
   if (!res.ok || !res.body) {
     const errText = await res.text().catch(() => res.statusText)
     throw new Error(`Anthropic API error ${res.status}: ${errText.slice(0, 500)}`)
@@ -131,7 +168,6 @@ async function runClaudeTurn(
   const blocks: any[] = []
   let stopReason: string | null = null
   let usage: any = null
-
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -145,17 +181,16 @@ async function runClaudeTurn(
         blocks[data.index] = data.content_block?.type === 'tool_use'
           ? { ...data.content_block, _partial: '' }
           : { ...data.content_block }
+        if (data.content_block?.type === 'thinking') send({ type: 'status', label: 'thinking…' })
         break
       case 'content_block_delta': {
         const b = blocks[data.index]
         if (!b) break
-        if (data.delta?.type === 'text_delta') {
-          b.text = (b.text ?? '') + data.delta.text
-          send({ type: 'text', delta: data.delta.text })
-        } else if (data.delta?.type === 'input_json_delta') {
-          b._partial = (b._partial ?? '') + data.delta.partial_json
-        }
-        // thinking_delta intentionally not forwarded
+        const d = data.delta
+        if (d?.type === 'text_delta') { b.text = (b.text ?? '') + d.text; send({ type: 'text', delta: d.text }) }
+        else if (d?.type === 'input_json_delta') { b._partial = (b._partial ?? '') + d.partial_json }
+        else if (d?.type === 'thinking_delta') { b.thinking = (b.thinking ?? '') + d.thinking }
+        else if (d?.type === 'signature_delta') { b.signature = (b.signature ?? '') + d.signature }
         break
       }
       case 'content_block_stop': {
@@ -184,15 +219,11 @@ async function runClaudeTurn(
       if (!line) continue
       const payload = line.slice(5).trim()
       if (!payload || payload === '[DONE]') continue
-      try { handleEvent(JSON.parse(payload)) } catch { /* ignore malformed keepalive */ }
+      try { handleEvent(JSON.parse(payload)) } catch { /* ignore keepalive */ }
     }
   }
 
-  // strip internal helpers, drop empty thinking blocks the API may emit
-  const content = blocks.filter(Boolean).map((b) => {
-    if (b._partial !== undefined) delete b._partial
-    return b
-  })
+  const content = blocks.filter(Boolean).map((b) => { if (b._partial !== undefined) delete b._partial; return b })
   return { content, stopReason, usage }
 }
 
@@ -203,24 +234,17 @@ serve(async (req) => {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY is not configured' }, 500)
 
-  const admin = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  )
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
   // ── Auth: active founder/admin only ──────────────────────────────────────────
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) return json({ error: 'Unauthorized' }, 401)
-  const { data: { user }, error: authErr } =
-    await admin.auth.getUser(authHeader.replace('Bearer ', ''))
+  const { data: { user }, error: authErr } = await admin.auth.getUser(authHeader.replace('Bearer ', ''))
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401)
 
   const { data: emp } = await admin
-    .from('employees')
-    .select('id, role, name')
-    .eq('auth_user_id', user.id)
-    .eq('is_active', true)
-    .single()
+    .from('employees').select('id, role, name')
+    .eq('auth_user_id', user.id).eq('is_active', true).single()
   if (!emp || (emp.role !== 'founder' && emp.role !== 'admin')) {
     return json({ error: 'Forbidden: founders and admins only' }, 403)
   }
@@ -239,28 +263,22 @@ serve(async (req) => {
   if (conversationId) {
     const { data: conv } = await admin
       .from('chatbot_conversations').select('id, owner_id').eq('id', conversationId).single()
-    if (!conv || conv.owner_id !== emp.id) conversationId = null // not theirs -> start fresh
+    if (!conv || conv.owner_id !== emp.id) conversationId = null
     else {
       const { data: msgs } = await admin
-        .from('chatbot_messages')
-        .select('role, content')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-        .limit(20)
+        .from('chatbot_messages').select('role, content')
+        .eq('conversation_id', conversationId).order('created_at', { ascending: true }).limit(20)
       history = (msgs ?? []) as { role: string; content: string }[]
     }
   }
   if (!conversationId) {
     const { data: conv, error: convErr } = await admin
-      .from('chatbot_conversations')
-      .insert({ owner_id: emp.id, title: question.slice(0, 80) })
+      .from('chatbot_conversations').insert({ owner_id: emp.id, title: question.slice(0, 80) })
       .select('id').single()
     if (convErr) return json({ error: `could not start conversation: ${convErr.message}` }, 500)
     conversationId = conv.id
   }
-  await admin.from('chatbot_messages').insert({
-    conversation_id: conversationId, role: 'user', content: question,
-  })
+  await admin.from('chatbot_messages').insert({ conversation_id: conversationId, role: 'user', content: question })
 
   // ── Stream the answer ────────────────────────────────────────────────────────
   const stream = new ReadableStream({
@@ -279,6 +297,25 @@ serve(async (req) => {
         { role: 'user', content: question },
       ]
 
+      const runSql = async (sql: string, blockId: string, toolResults: any[]) => {
+        const { data, error } = await admin.rpc('chatbot_exec_sql', { q: sql, row_cap: ROW_CAP })
+        if (error) {
+          sqlLog.push({ sql, row_count: null, error: error.message })
+          send({ type: 'sql', sql, rows: null, error: error.message })
+          toolResults.push({ type: 'tool_result', tool_use_id: blockId, is_error: true,
+            content: `Query failed: ${error.message}. Rewrite the query and try again.` })
+        } else {
+          const rows = Array.isArray(data) ? data : []
+          let payload = JSON.stringify(rows)
+          if (payload.length > MAX_RESULT_CHARS) {
+            payload = payload.slice(0, MAX_RESULT_CHARS) + `\n...[truncated — ${rows.length} rows; refine/aggregate]`
+          }
+          sqlLog.push({ sql, row_count: rows.length, error: null })
+          send({ type: 'sql', sql, rows: rows.length, error: null })
+          toolResults.push({ type: 'tool_result', tool_use_id: blockId, content: payload })
+        }
+      }
+
       try {
         send({ type: 'meta', conversationId })
 
@@ -296,66 +333,45 @@ serve(async (req) => {
 
           for (const b of content) {
             if (b.type !== 'tool_use') continue
-
             if (b.name === 'run_sql') {
-              const sql = String(b.input?.sql ?? '')
-              const { data, error } = await admin.rpc('chatbot_exec_sql', { q: sql, row_cap: ROW_CAP })
-              if (error) {
-                sqlLog.push({ sql, row_count: null, error: error.message })
-                send({ type: 'sql', sql, rows: null, error: error.message })
-                toolResults.push({
-                  type: 'tool_result', tool_use_id: b.id, is_error: true,
-                  content: `Query failed: ${error.message}. Rewrite the query and try again.`,
-                })
+              await runSql(String(b.input?.sql ?? ''), b.id, toolResults)
+            } else if (b.name === 'sample_distinct') {
+              send({ type: 'status', label: 'checking values…' })
+              const sampleSql = buildSampleSql(b.input)
+              if (!sampleSql) {
+                toolResults.push({ type: 'tool_result', tool_use_id: b.id, is_error: true,
+                  content: 'Invalid schema/table/column. Use exact lowercase identifiers from a business schema.' })
               } else {
-                const rows = Array.isArray(data) ? data : []
-                let payload = JSON.stringify(rows)
-                if (payload.length > MAX_RESULT_CHARS) {
-                  payload = payload.slice(0, MAX_RESULT_CHARS) +
-                    `\n...[truncated — ${rows.length} rows; refine the query or aggregate]`
-                }
-                sqlLog.push({ sql, row_count: rows.length, error: null })
-                send({ type: 'sql', sql, rows: rows.length, error: null })
-                toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: payload })
+                await runSql(sampleSql, b.id, toolResults)
               }
+            } else if (b.name === 'lookup_person') {
+              send({ type: 'status', label: 'finding people…' })
+              const { data, error } = await admin.rpc('chatbot_resolve_person', { p_name: String(b.input?.name ?? '') })
+              toolResults.push({ type: 'tool_result', tool_use_id: b.id,
+                content: error ? `lookup failed: ${error.message}` : JSON.stringify(data ?? []) })
             } else if (b.name === 'present_result') {
               presentedTable = b.input?.table ?? null
               presentedChart = b.input?.chart ?? null
               send({ type: 'result', table: presentedTable, chart: presentedChart })
               toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: 'Displayed to the user.' })
             } else {
-              toolResults.push({
-                type: 'tool_result', tool_use_id: b.id, is_error: true,
-                content: `Unknown tool ${b.name}`,
-              })
+              toolResults.push({ type: 'tool_result', tool_use_id: b.id, is_error: true, content: `Unknown tool ${b.name}` })
             }
           }
-
           messages.push({ role: 'user', content: toolResults })
         }
 
         if (!finalText) {
-          finalText = 'I was unable to complete the answer within the allowed steps. Please try rephrasing.'
+          finalText = 'I could not complete a grounded answer within the allowed steps. Please rephrase or narrow the question.'
           send({ type: 'text', delta: finalText })
         }
 
         const { data: saved } = await admin.from('chatbot_messages').insert({
-          conversation_id: conversationId,
-          role: 'assistant',
-          content: finalText,
-          meta: {
-            sql_log: sqlLog,
-            table: presentedTable,
-            chart: presentedChart,
-            model: MODEL,
-            usage: lastUsage,
-          },
+          conversation_id: conversationId, role: 'assistant', content: finalText,
+          meta: { sql_log: sqlLog, table: presentedTable, chart: presentedChart, model: MODEL, usage: lastUsage },
         }).select('id').single()
 
-        await admin.from('chatbot_conversations')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', conversationId)
-
+        await admin.from('chatbot_conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId)
         send({ type: 'done', conversationId, messageId: saved?.id ?? null })
       } catch (e) {
         send({ type: 'error', message: e instanceof Error ? e.message : String(e) })
