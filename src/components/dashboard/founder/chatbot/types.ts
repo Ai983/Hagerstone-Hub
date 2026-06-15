@@ -27,11 +27,13 @@ export interface ChatMessage {
   chart: ChartSpec | null
   streaming: boolean
   errored?: boolean
+  phase?: string // transient status label while streaming (e.g. "thinking…")
 }
 
 // NDJSON event envelope streamed by the chatbot-query edge function.
 export type ChatEvent =
   | { type: 'meta'; conversationId: string }
+  | { type: 'status'; label: string }
   | { type: 'text'; delta: string }
   | { type: 'sql'; sql: string; rows: number | null; error: string | null }
   | { type: 'result'; table: TableSpec | null; chart: ChartSpec | null }
