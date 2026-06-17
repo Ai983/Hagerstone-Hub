@@ -477,7 +477,7 @@ const DEPT_LABEL: Record<string, string> = ROLE_SHORT_LABELS
 
 function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
   const isHead    = employee.is_head
-  const isGlobal  = employee.role === 'founder' || employee.role === 'admin'
+  const isGlobal  = employee.role === 'founder' || employee.role === 'admin' || employee.del_super === true
   const canAssign = isHead || isGlobal
 
   const firstAssignableUid = (() => {
@@ -762,7 +762,7 @@ export function MyDayPage() {
   const authUserId = employee?.auth_user_id ?? ''
   const roleGroup  = employee?.role ?? ''
   const isHead     = employee?.is_head ?? false
-  const isGlobal   = roleGroup === 'founder' || roleGroup === 'admin'
+  const isGlobal   = roleGroup === 'founder' || roleGroup === 'admin' || employee?.del_super === true
 
   const tasksKey   = ['del_tasks', authUserId]
   const membersKey = ['del_team', roleGroup]

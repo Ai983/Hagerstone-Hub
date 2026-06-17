@@ -34,6 +34,10 @@ export interface Employee {
   employee_code: string | null
   is_active: boolean
   is_head: boolean
+  /** Delegation super-user: founder/admin-equivalent power over delegation +
+   *  gamification (assign company-wide, verify any dept, org analytics) WITHOUT
+   *  finance/CPS or admin-panel access. Granted per-employee. */
+  del_super: boolean
   must_change_password: boolean
   onboarded_at: string | null
   created_at: string

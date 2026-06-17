@@ -115,6 +115,22 @@ export function DashboardPage() {
                 </Button>
               </motion.div>
             )}
+            {/* Org delegation & gamification analytics — delegation super-users.
+                Founders/admins reach the same view inside Founder Overview. */}
+            {employee?.del_super && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/delegation/org')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <BarChart2 size={13} className="mr-1.5" />
+                  Gamification
+                </Button>
+              </motion.div>
+            )}
             {(employee?.role === 'founder' || isAdmin) && (
               <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                 <Button

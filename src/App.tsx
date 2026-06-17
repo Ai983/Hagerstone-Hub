@@ -7,6 +7,7 @@ import { FounderDashboard } from './pages/FounderDashboard'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { HeadRoute } from './components/HeadRoute'
+import { DelSuperRoute } from './components/DelSuperRoute'
 import { EmployeesPage } from './pages/admin/EmployeesPage'
 import { AddEmployeePage } from './pages/admin/AddEmployeePage'
 import { EditEmployeePage } from './pages/admin/EditEmployeePage'
@@ -14,6 +15,7 @@ import { ProjectsPage } from './pages/admin/ProjectsPage'
 import { MyDayPage } from './pages/delegation/MyDayPage'
 import { VerifyQueuePage } from './pages/delegation/VerifyQueuePage'
 import { MyPointsPage } from './pages/delegation/MyPointsPage'
+import { DelegationOrgPage } from './pages/delegation/DelegationOrgPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
 
 const queryClient = new QueryClient()
@@ -75,6 +77,12 @@ export default function App() {
             <ProtectedRoute>
               <MyPointsPage />
             </ProtectedRoute>
+          } />
+
+          <Route path="/delegation/org" element={
+            <DelSuperRoute>
+              <DelegationOrgPage />
+            </DelSuperRoute>
           } />
 
           <Route path="/approvals" element={

@@ -39,7 +39,7 @@ serve(async (req) => {
 
   const { data: caller } = await supabase
     .from('employees')
-    .select('name, role, is_head, is_active')
+    .select('name, role, is_head, is_active, del_super')
     .eq('auth_user_id', user.id)
     .eq('is_active', true)
     .single()
@@ -57,8 +57,8 @@ serve(async (req) => {
     .single()
   if (!task) return json({ error: 'Task not found' }, 404)
 
-  // Only notify head/founder → other-employee assignments
-  const isGlobal = caller.role === 'founder' || caller.role === 'admin'
+  // Only notify head/founder/del_super → other-employee assignments
+  const isGlobal = caller.role === 'founder' || caller.role === 'admin' || caller.del_super === true
   const isHead   = caller.is_head === true
   if (!isGlobal && !isHead) {
     return json({ skipped: true, reason: 'caller is not a head/founder' })

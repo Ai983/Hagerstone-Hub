@@ -32,7 +32,7 @@ serve(async (req) => {
 
   const { data: caller } = await supabase
     .from('employees')
-    .select('role, is_head, is_active')
+    .select('role, is_head, is_active, del_super')
     .eq('auth_user_id', user.id)
     .eq('is_active', true)
     .single()
@@ -73,7 +73,8 @@ serve(async (req) => {
   }
 
   // ── 4. Authorise caller ────────────────────────────────────────────────────
-  const isGlobal  = caller.role === 'founder' || caller.role === 'admin'
+  // del_super = founder/admin-equivalent over delegation: verify ANY department.
+  const isGlobal  = caller.role === 'founder' || caller.role === 'admin' || caller.del_super === true
   const isDeptHead = caller.role === task.role_group && caller.is_head === true
   if (!isGlobal && !isDeptHead) {
     return json({ error: 'Forbidden: you are not the head for this department' }, 403)

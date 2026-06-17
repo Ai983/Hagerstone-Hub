@@ -311,7 +311,7 @@ export function VerifyQueuePage() {
 
   const [actLoading, setActLoading] = useState<string | null>(null)
 
-  const isGlobal   = employee?.role === 'founder' || employee?.role === 'admin'
+  const isGlobal   = employee?.role === 'founder' || employee?.role === 'admin' || employee?.del_super === true
   const filterRole = isGlobal ? null : (employee?.role ?? null)
 
   const queueKey   = ['del_verify_queue', filterRole]
