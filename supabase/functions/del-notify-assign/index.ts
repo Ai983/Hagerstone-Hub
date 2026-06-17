@@ -1,9 +1,9 @@
-// del-notify-assign — Head→Employee assignment WhatsApp notification (SPEC §6)
-// Called by the client right after a head/founder creates a task for someone else.
-// Writes a del_notifications row (pending) + fires the n8n Maytapi webhook.
-// n8n sends the WhatsApp and PATCHes the row to sent/failed. On 2 failures the
-// in-app inbox row (this row) is the fallback so "assigned" never silently means
-// "not notified".
+// del-notify-assign — Head/founder/del_super → Employee assignment WhatsApp.
+// Called by the client right after a task is created for someone else. Writes a
+// del_notifications row (in-app fallback record) and sends the WhatsApp DIRECTLY
+// via Maytapi — same proven path as the admin "Send Invite/Resend" onboarding
+// flow (send-onboarding). The row is PATCHed to sent/failed after the send so
+// "assigned" never silently means "not notified".
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -12,6 +12,12 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+
+// Maytapi WhatsApp — same product/phone/key as the admin "Send Invite / Resend"
+// onboarding flow (send-onboarding). MAYTAPI_API_KEY is a Hub edge-function secret.
+const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
+const MAYTAPI_PHONE_ID = '46821'
+const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -87,9 +93,24 @@ serve(async (req) => {
   const hubBase = Deno.env.get('HUB_PUBLIC_URL') ?? 'https://hagerstone-hub.vercel.app'
   const deepLink = `${hubBase}/delegation/my-day`
 
+  // Readable deadline, e.g. "20 Jun 2026" (fall back to raw date on any error)
+  let dueLabel = task.task_date
+  try {
+    dueLabel = new Date(`${task.task_date}T00:00:00+05:30`).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    })
+  } catch (_e) { /* keep raw YYYY-MM-DD */ }
+
   const message =
-    `📋 Naya kaam aapko assign hua hai: *${task.title}* (${typeLabel}). ` +
-    `Assign by: ${caller.name}. Last date: ${task.task_date}. App mein dekhein: ${deepLink}`
+    `📋 *Naya Kaam Assign Hua Hai*\n\n` +
+    `Namaste ${assignee?.name ?? ''}! Aapko ek naya task mila hai:\n\n` +
+    `📝 *Kaam:* ${task.title}\n` +
+    `🏷️ *Type:* ${typeLabel}\n` +
+    `👤 *Assign by:* ${caller.name}\n` +
+    `⏰ *Last date:* ${dueLabel}\n\n` +
+    `Kaam complete karke yahan submit karein 👇\n${deepLink}\n\n` +
+    `⚠️ Link ko Chrome ya Safari mein kholein (WhatsApp ke andar nahi).\n\n` +
+    `— Hagerstone Hub`
 
   // ── 5. Write del_notifications row (pending) — in-app fallback record ──────
   const channel = assignee?.phone ? 'whatsapp' : 'in_app'
@@ -106,34 +127,38 @@ serve(async (req) => {
     .select('id')
     .single()
 
-  // ── 6. Fire n8n Maytapi webhook (best-effort) ──────────────────────────────
-  // If no phone, we skip WhatsApp — the in_app row above is the notification.
-  const webhook = Deno.env.get('N8N_DEL_ASSIGN_WEBHOOK')
-  if (webhook && assignee?.phone) {
-    fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        notification_id: notif?.id,
-        task_id,
-        task_title: task.title,
-        task_type_label: typeLabel,
-        head_name: caller.name,
-        due_date: task.task_date,
-        deep_link: deepLink,
-        recipient_phone: assignee.phone,
-        recipient_name: assignee.name,
-        message,
-      }),
-    }).catch(() => {
-      // best-effort; the pending row remains for retry / in-app fallback
-    })
+  // ── 6. Send WhatsApp directly via Maytapi (same path as send-onboarding) ───
+  // No phone → the in_app row above is the notification (status stays 'pending').
+  let waStatus: 'pending' | 'sent' | 'failed' = 'pending'
+  if (assignee?.phone) {
+    const digits = assignee.phone.replace(/\D/g, '')
+    const toNumber = digits.startsWith('91') ? digits : `91${digits}`
+    try {
+      const waRes = await fetch(
+        `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
+          body: JSON.stringify({ to_number: toNumber, type: 'text', message }),
+        },
+      )
+      waStatus = waRes.ok ? 'sent' : 'failed'
+    } catch (_e) {
+      waStatus = 'failed'
+    }
+
+    if (notif?.id) {
+      await supabase
+        .from('del_notifications')
+        .update({ status: waStatus, attempts: 1 })
+        .eq('id', notif.id)
+    }
   }
 
   return json({
     success: true,
     notification_id: notif?.id,
     channel,
-    notified: !!(webhook && assignee?.phone),
+    notified: waStatus === 'sent',
   })
 })
