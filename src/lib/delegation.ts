@@ -62,6 +62,23 @@ export async function fetchAllActiveEmployees(): Promise<Employee[]> {
   return (data ?? []) as Employee[]
 }
 
+// ── Projects (for the task-form project picker; live from public.projects) ─────
+export interface DelProjectOption {
+  id: string
+  code: string
+  name: string
+}
+
+export async function fetchActiveProjects(): Promise<DelProjectOption[]> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, code, name')
+    .eq('is_active', true)
+    .order('name')
+  if (error) throw error
+  return (data ?? []) as DelProjectOption[]
+}
+
 // ── Verify queue (tasks awaiting head review — under_review status) ────────────
 
 export async function fetchSubmittedTasks(roleGroup: string | null): Promise<DelTask[]> {
@@ -92,19 +109,27 @@ export interface CreateTaskInput {
   role_group: string
   assigned_to: string   // auth.users.id
   assigned_by: string   // auth.users.id
+  project_id?: string | null      // public.projects.id
+  custom_points?: number | null   // set for "Other" custom tasks (auto-award on verify)
+  on_behalf_of?: string | null    // 'Dhruv Sir' | 'Bhaskar Sir'
+  due_time?: string | null        // 'HH:MM' display-only deadline time
 }
 
 export async function createTask(input: CreateTaskInput): Promise<string> {
   const { data, error } = await supabase
     .from('del_tasks')
     .insert({
-      title:       input.title.trim(),
-      description: input.description.trim() || null,
-      type_code:   input.type_code || null,
-      task_date:   input.task_date,
-      role_group:  input.role_group,
-      assigned_to: input.assigned_to,
-      assigned_by: input.assigned_by,
+      title:         input.title.trim(),
+      description:   input.description.trim() || null,
+      type_code:     input.type_code || null,
+      task_date:     input.task_date,
+      role_group:    input.role_group,
+      assigned_to:   input.assigned_to,
+      assigned_by:   input.assigned_by,
+      project_id:    input.project_id ?? null,
+      custom_points: input.custom_points ?? null,
+      on_behalf_of:  input.on_behalf_of ?? null,
+      due_time:      input.due_time ?? null,
     })
     .select('id')
     .single()

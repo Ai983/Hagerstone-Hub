@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft, Plus, X, Loader2,
-  Paperclip, Send, ChevronRight,
+  Paperclip, Send, ChevronRight, Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '../../hooks/useAuth'
@@ -13,6 +13,7 @@ import {
   fetchAllTaskTypes,
   fetchTeamMembers,
   fetchAllActiveEmployees,
+  fetchActiveProjects,
   createTask,
   moveToInProgress,
   submitTask,
@@ -26,6 +27,7 @@ import { LABELS, STAGE_EMPTY, type PillStatus } from '../../lib/delegation-ui'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { SearchableSelect, type SearchOption } from '../../components/ui/SearchableSelect'
 import { DELEGATION_ROLES, ROLE_SHORT_LABELS } from '../../config/roles'
 import { DELEGATION_POINTS } from '../../config/delegation-points'
 
@@ -490,21 +492,33 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
   })()
 
   const [title, setTitle]               = useState('')
-  const [description, setDesc]          = useState('')
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
   const [taskDate, setTaskDate]         = useState(today())
+  const [dueTime, setDueTime]           = useState('')
   const [assignedTo, setAssignedTo]     = useState(firstAssignableUid)
+  const [projectId, setProjectId]       = useState('')
+  const [onBehalfOf, setOnBehalfOf]     = useState('')
+  const [otherTitle, setOtherTitle]     = useState('')
+  const [otherPoints, setOtherPoints]   = useState('')
   const [saving, setSaving]             = useState(false)
 
-  const selfEntry = { auth_user_id: employee.auth_user_id ?? '', name: `${employee.name} (Mujhe)` }
-  const assignees = canAssign
+  const selfUid = employee.auth_user_id ?? ''
+
+  // Live, spelling-tolerant pickers
+  const { data: projects = [] } = useQuery({ queryKey: ['del_projects_active'], queryFn: fetchActiveProjects })
+  const projectOptions: SearchOption[] = projects.map((p) => ({ value: p.id, label: p.name, sublabel: p.code }))
+
+  const employeeOptions: SearchOption[] = canAssign
     ? [
+        { value: selfUid, label: `${employee.name} (Mujhe)` },
         ...teamMembers
           .filter((m) => m.role !== 'founder' && m.role !== 'admin')
-          .map((m) => ({ auth_user_id: m.auth_user_id ?? '', name: `${m.name} (${m.role?.replace(/_/g, ' ')})` })),
-        selfEntry,
+          .map((m) => ({ value: m.auth_user_id ?? '', label: m.name, sublabel: (m.role ?? '').replace(/_/g, ' ') })),
       ]
-    : [selfEntry]
+    : [{ value: selfUid, label: `${employee.name} (Mujhe)` }]
+
+  const DIRECTORS = ['Dhruv Sir', 'Bhaskar Sir']
+  const assigningToOther = canAssign && assignedTo !== selfUid
 
   const resolvedRoleGroup =
     teamMembers.find((m) => m.auth_user_id === assignedTo)?.role ?? employee.role
@@ -519,6 +533,10 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
     acc[t.role_group].push(t)
     return acc
   }, {})
+
+  // "Other" type → assigner writes a custom title + sets points (auto-awarded on verify)
+  const otherCode = visibleTaskTypes.find((t) => t.label.trim().toLowerCase() === 'other')?.code ?? null
+  const otherSelected = otherCode ? selectedTypes.has(otherCode) : false
 
   // Clear selections when assignee changes
   useEffect(() => {
@@ -542,27 +560,39 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim() || selectedTypes.size === 0) return
+    if (selectedTypes.size === 0) return
+    const codes = Array.from(selectedTypes)
+    const hasNonOther = codes.some((c) => c !== otherCode)
+    if (hasNonOther && !title.trim()) return
+    if (otherSelected && (!otherTitle.trim() || !(Number(otherPoints) > 0))) return
+    if (assigningToOther && !onBehalfOf) return
     setSaving(true)
     try {
       // Create one task per selected type in parallel
       await Promise.all(
-        Array.from(selectedTypes).map((code) => {
+        codes.map((code) => {
           const t = visibleTaskTypes.find((x) => x.code === code)
+          const isOther = code === otherCode
           return createTask({
-            title: selectedTypes.size === 1 ? title : `${title} — ${t?.label ?? code}`,
-            description,
+            title: isOther
+              ? otherTitle.trim()
+              : (codes.length === 1 ? title : `${title} — ${t?.label ?? code}`),
+            description: '',
             type_code: code,
             task_date: taskDate,
             role_group: t?.role_group ?? resolvedRoleGroup,
             assigned_to: assignedTo,
-            assigned_by: employee.auth_user_id ?? '',
+            assigned_by: selfUid,
+            project_id: projectId || null,
+            custom_points: isOther ? Math.round(Number(otherPoints)) : null,
+            on_behalf_of: assigningToOther ? onBehalfOf : null,
+            due_time: dueTime || null,
           })
         })
       )
-      toast.success(selectedTypes.size === 1
+      toast.success(codes.length === 1
         ? 'Kaam create ho gaya!'
-        : `${selectedTypes.size} kaam create ho gaye!`)
+        : `${codes.length} kaam create ho gaye!`)
       onCreated()
       onClose()
     } catch (err: unknown) {
@@ -608,27 +638,14 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Kya kiya / karna hai?"
-                required
                 className="text-sm h-11"
               />
             </div>
 
-            {/* Details */}
-            <div>
-              <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Details <span className="text-stone-400 font-normal">(optional)</span></Label>
-              <textarea
-                value={description}
-                onChange={(e) => setDesc(e.target.value)}
-                placeholder="Thoda aur batao…"
-                rows={2}
-                className="w-full text-sm rounded-lg border border-input bg-background px-3 py-2.5 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 resize-none"
-              />
-            </div>
-
-            {/* Date + Assignee row */}
-            <div className={`grid gap-3 ${canAssign ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {/* Deadline date + time */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kab tak?</Label>
+                <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kab tak? (date)</Label>
                 <Input
                   type="date"
                   value={taskDate}
@@ -636,21 +653,61 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
                   className="text-sm h-11"
                 />
               </div>
-              {canAssign && (
-                <div>
-                  <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kisko?</Label>
-                  <select
-                    value={assignedTo}
-                    onChange={(e) => setAssignedTo(e.target.value)}
-                    className="w-full text-sm rounded-lg border border-input bg-background px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 h-11"
-                  >
-                    {assignees.map((a) => (
-                      <option key={a.auth_user_id} value={a.auth_user_id}>{a.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 flex items-center gap-1 font-medium">
+                  <Clock size={12} /> Time
+                </Label>
+                <Input
+                  type="time"
+                  value={dueTime}
+                  onChange={(e) => setDueTime(e.target.value)}
+                  className="text-sm h-11"
+                />
+              </div>
             </div>
+
+            {/* Project (optional) — live from public.projects */}
+            <div>
+              <Label className="text-xs text-stone-500 mb-1.5 block font-medium">
+                Project <span className="text-stone-400 font-normal">(optional)</span>
+              </Label>
+              <SearchableSelect
+                options={projectOptions}
+                value={projectId}
+                onChange={setProjectId}
+                placeholder="Project dhundein…"
+                emptyText="Koi project nahi mila"
+              />
+            </div>
+
+            {/* Assignee — searchable by name (role shown) */}
+            {canAssign && (
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Kisko?</Label>
+                <SearchableSelect
+                  options={employeeOptions}
+                  value={assignedTo}
+                  onChange={setAssignedTo}
+                  placeholder="Naam se dhundein…"
+                  emptyText="Koi employee nahi mila"
+                />
+              </div>
+            )}
+
+            {/* Assigned by — director on whose behalf (only when assigning to someone else) */}
+            {assigningToOther && (
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 block font-medium">Assigned by</Label>
+                <select
+                  value={onBehalfOf}
+                  onChange={(e) => setOnBehalfOf(e.target.value)}
+                  className="w-full text-sm rounded-lg border border-input bg-background px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 h-11"
+                >
+                  <option value="">Director chuniye…</option>
+                  {DIRECTORS.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            )}
 
             {/* Task type multi-select */}
             <div>
@@ -718,6 +775,27 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
                   ))}
                 </div>
               )}
+
+              {/* Other → custom title + points (auto-awarded on verify) */}
+              {otherSelected && (
+                <div className="mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50/60 space-y-2">
+                  <Label className="text-xs text-amber-800 font-semibold block">Other — custom kaam</Label>
+                  <Input
+                    value={otherTitle}
+                    onChange={(e) => setOtherTitle(e.target.value)}
+                    placeholder="Is kaam ka naam likhein"
+                    className="text-sm h-10 bg-white"
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    value={otherPoints}
+                    onChange={(e) => setOtherPoints(e.target.value)}
+                    placeholder="Points (e.g. 15)"
+                    className="text-sm h-10 bg-white"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -728,7 +806,13 @@ function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }
             </Button>
             <Button
               type="submit"
-              disabled={saving || !title.trim() || selectedTypes.size === 0}
+              disabled={
+                saving ||
+                selectedTypes.size === 0 ||
+                (Array.from(selectedTypes).some((c) => c !== otherCode) && !title.trim()) ||
+                (otherSelected && (!otherTitle.trim() || !(Number(otherPoints) > 0))) ||
+                (assigningToOther && !onBehalfOf)
+              }
               className="flex-1 text-sm h-11 bg-amber-700 hover:bg-amber-800 text-white font-medium"
             >
               {saving

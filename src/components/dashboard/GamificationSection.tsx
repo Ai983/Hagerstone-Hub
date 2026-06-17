@@ -22,6 +22,9 @@ export function GamificationSection() {
   const authUserId = employee?.auth_user_id ?? ''
   const roleGroup  = employee?.role ?? ''
   const hasDelegation = DELEGATION_ROLES.includes(roleGroup)
+  // Leaderboards (team standings) are visible to directors/admins only; everyone
+  // else still sees their own points card.
+  const isLeaderViewer = roleGroup === 'founder' || roleGroup === 'admin'
 
   // For since-last-visit notifications
   const { data: scores = [] } = useDelegationScores('all')
@@ -69,11 +72,11 @@ export function GamificationSection() {
       {hasCpsFinance && (
         <>
           {payload!.group === 'management' ? (
-            <TeamSummaryHero leaderboards={payload!.leaderboards} />
+            isLeaderViewer && <TeamSummaryHero leaderboards={payload!.leaderboards} />
           ) : (
             payload!.me && <PointsCard me={payload!.me} group={payload!.group!} />
           )}
-          {payload!.leaderboards.map((board) => (
+          {isLeaderViewer && payload!.leaderboards.map((board) => (
             <Leaderboard key={board.key} data={board} currentUserId={payload!.me?.userId ?? null} />
           ))}
         </>
@@ -88,11 +91,13 @@ export function GamificationSection() {
             period={delPeriod}
             onPeriodChange={setDelPeriod}
           />
-          <DelegationLeaderboard
-            roleGroup={roleGroup}
-            authUserId={authUserId}
-            period={delPeriod}
-          />
+          {isLeaderViewer && (
+            <DelegationLeaderboard
+              roleGroup={roleGroup}
+              authUserId={authUserId}
+              period={delPeriod}
+            />
+          )}
         </>
       )}
     </div>

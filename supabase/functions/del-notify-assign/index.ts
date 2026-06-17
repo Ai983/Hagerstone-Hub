@@ -1,9 +1,9 @@
 // del-notify-assign — Head/founder/del_super → Employee assignment WhatsApp.
 // Called by the client right after a task is created for someone else. Writes a
 // del_notifications row (in-app fallback record) and sends the WhatsApp DIRECTLY
-// via Maytapi — same proven path as the admin "Send Invite/Resend" onboarding
+// via Maytapi — same proven path as the admin Send Invite/Resend onboarding
 // flow (send-onboarding). The row is PATCHed to sent/failed after the send so
-// "assigned" never silently means "not notified".
+// assigned never silently means not notified.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -13,7 +13,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Maytapi WhatsApp — same product/phone/key as the admin "Send Invite / Resend"
+// Maytapi WhatsApp — same product/phone/key as the admin Send Invite / Resend
 // onboarding flow (send-onboarding). MAYTAPI_API_KEY is a Hub edge-function secret.
 const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
 const MAYTAPI_PHONE_ID = '46821'
@@ -58,7 +58,7 @@ serve(async (req) => {
   // ── 3. Load the task ───────────────────────────────────────────────────────
   const { data: task } = await supabase
     .from('del_tasks')
-    .select('id, title, type_code, role_group, assigned_to, assigned_by, task_date, status')
+    .select('id, title, type_code, role_group, assigned_to, assigned_by, task_date, status, on_behalf_of, due_time')
     .eq('id', task_id)
     .single()
   if (!task) return json({ error: 'Task not found' }, 404)
@@ -93,24 +93,29 @@ serve(async (req) => {
   const hubBase = Deno.env.get('HUB_PUBLIC_URL') ?? 'https://hagerstone-hub.vercel.app'
   const deepLink = `${hubBase}/delegation/my-day`
 
-  // Readable deadline, e.g. "20 Jun 2026" (fall back to raw date on any error)
+  // Readable deadline, e.g. 20 Jun 2026 (fall back to raw date on any error)
   let dueLabel = task.task_date
   try {
     dueLabel = new Date(`${task.task_date}T00:00:00+05:30`).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric',
     })
   } catch (_e) { /* keep raw YYYY-MM-DD */ }
+  const timeStr = task.due_time ? ` ${String(task.due_time).slice(0, 5)}` : ''
+
+  // Assigned on behalf of a director (Ritu assigns for them); fall back to caller.
+  const assigner = task.on_behalf_of ?? caller.name
 
   const message =
     `📋 *Naya Kaam Assign Hua Hai*\n\n` +
-    `Namaste ${assignee?.name ?? ''}! Aapko ek naya task mila hai:\n\n` +
+    `Namaste ${assignee?.name ?? ''}! Aapko ek naya task ${assigner} ne assign kiya hai:\n\n` +
     `📝 *Kaam:* ${task.title}\n` +
     `🏷️ *Type:* ${typeLabel}\n` +
-    `👤 *Assign by:* ${caller.name}\n` +
-    `⏰ *Last date:* ${dueLabel}\n\n` +
+    `👤 *Assign by:* ${assigner}\n` +
+    `⏰ *Last date:* ${dueLabel}${timeStr}\n\n` +
+    `Kripya is task ko skillfully aur timely complete karein.\n\n` +
     `Kaam complete karke yahan submit karein 👇\n${deepLink}\n\n` +
     `⚠️ Link ko Chrome ya Safari mein kholein (WhatsApp ke andar nahi).\n\n` +
-    `— Hagerstone Hub`
+    `— Admin Hagerstone`
 
   // ── 5. Write del_notifications row (pending) — in-app fallback record ──────
   const channel = assignee?.phone ? 'whatsapp' : 'in_app'
