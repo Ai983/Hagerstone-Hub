@@ -65,7 +65,7 @@ serve(async (req) => {
   // ── 3. Fetch and validate task ─────────────────────────────────────────────
   const { data: task, error: taskErr } = await supabase
     .from('del_tasks')
-    .select('id, title, description, type_code, role_group, assigned_to, task_date, status')
+    .select('id, title, description, type_code, role_group, assigned_to, task_date, status, custom_points')
     .eq('id', task_id)
     .single()
 
@@ -172,6 +172,40 @@ serve(async (req) => {
     details: { submission_id: submission.id, ceiling, scored_by: scoredBy },
   })
 
+  // ── 9-custom. Other custom-points task: assigner set the points → auto-award
+  // on verify. We propose exactly the entered value (regardless of timing) and
+  // move to under_review so the head just confirms completion.
+  if (task.custom_points != null) {
+    await supabase
+      .from('del_points')
+      .insert({
+        user_id:      user.id,
+        role_group:   task.role_group,
+        points:       0,
+        proposed_points: task.custom_points,
+        summary:      `Custom Other task — ${task.custom_points} pts set by the assigner. Head: confirm to award.`,
+        reason:       `${task.title} submitted — custom points (${task.custom_points})`,
+        task_id,
+        submission_id: submission.id,
+        source_type:  'delegation',
+        status:       'pending',
+        period_week:  isoWeekMonday(task.task_date),
+        period_month: monthStart(task.task_date),
+        agent_meta:   { confidence: 'n/a', flags: ['custom_points'], reasoning: 'Assigner-set custom points', model: 'none' },
+      })
+
+    await supabase
+      .from('del_tasks')
+      .update({ status: 'under_review', updated_at: now.toISOString() })
+      .eq('id', task_id)
+
+    return json({
+      success: true,
+      submission_id: submission.id,
+      message: 'Submitted! Head confirm karega aur aapke points mil jayenge.',
+    })
+  }
+
   // ── 9a. EXTERNAL types: CPS/Finance already own the points (spec §3) ───────
   // The AI agent does NOT propose points. We move straight to under_review with
   // a note so the head can see the task; points come from the existing engine.
@@ -184,7 +218,7 @@ serve(async (req) => {
         points:       0,
         proposed_points: null,
         summary:      'This task type is scored by the CPS/Finance system — points are tracked there, not by the delegation AI. Head: confirm completion only.',
-        reason:       `"${task.title}" submitted — externally scored (CPS/Finance)`,
+        reason:       `${task.title} submitted — externally scored (CPS/Finance)`,
         task_id,
         submission_id: submission.id,
         source_type:  'delegation',
