@@ -7,6 +7,7 @@ import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanba
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GamificationSection } from '../components/dashboard/GamificationSection'
+import { EmployeeDelegationBoard } from '../components/dashboard/EmployeeDelegationBoard'
 import { getPlacement } from '../lib/gamification'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { FounderAvatar } from '../components/FounderAvatar'
@@ -30,6 +31,9 @@ export function DashboardPage() {
   // Single source for the header (desktop) + bottom bar (mobile) nav actions.
   const role = employee?.role ?? ''
   const isDelegationRole = DELEGATION_ROLES.includes(role)
+  // Delegation super-users (Ritu) get the org employee board first instead of
+  // gamification; their team standings live on the Gamification page.
+  const isEmpBoard = !!employee?.del_super
   const navActions = [
     { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
     { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
@@ -139,8 +143,15 @@ export function DashboardPage() {
           </p>
         </motion.div>
 
+        {/* Ritu / del_super: org employee board first (assign + nudge from here) */}
+        {isEmpBoard && (
+          <div className="mb-8">
+            <EmployeeDelegationBoard />
+          </div>
+        )}
+
         {/* Gamification — top slot (procurement / finance / management) */}
-        {placement === 'top' && (
+        {placement === 'top' && !isEmpBoard && (
           <div className="mb-8">
             <GamificationSection />
           </div>
@@ -193,7 +204,7 @@ export function DashboardPage() {
         </motion.div>
 
         {/* Gamification — bottom slot (site engineers) */}
-        {placement === 'bottom' && (
+        {placement === 'bottom' && !isEmpBoard && (
           <div className="mt-8">
             <GamificationSection />
           </div>

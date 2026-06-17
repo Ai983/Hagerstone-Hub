@@ -477,7 +477,7 @@ const TIER_COLOR: Record<string, string> = {
 }
 const DEPT_LABEL: Record<string, string> = ROLE_SHORT_LABELS
 
-function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
+export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
   const isHead    = employee.is_head
   const isGlobal  = employee.role === 'founder' || employee.role === 'admin' || employee.del_super === true
   const canAssign = isHead || isGlobal

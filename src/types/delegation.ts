@@ -74,6 +74,10 @@ export interface DelTask {
   assigned_to: string   // auth.users.id
   assigned_by: string   // auth.users.id
   task_date: string     // DATE as "YYYY-MM-DD"
+  due_time: string | null      // display-only deadline time "HH:MM:SS"
+  project_id: string | null
+  custom_points: number | null // set for "Other" custom tasks
+  on_behalf_of: string | null  // director the task is assigned for
   status: DelTaskStatus
   submitted_at: string | null
   completed_on_time: boolean | null
