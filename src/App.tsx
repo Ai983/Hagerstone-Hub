@@ -10,6 +10,7 @@ import { HeadRoute } from './components/HeadRoute'
 import { EmployeesPage } from './pages/admin/EmployeesPage'
 import { AddEmployeePage } from './pages/admin/AddEmployeePage'
 import { EditEmployeePage } from './pages/admin/EditEmployeePage'
+import { ProjectsPage } from './pages/admin/ProjectsPage'
 import { MyDayPage } from './pages/delegation/MyDayPage'
 import { VerifyQueuePage } from './pages/delegation/VerifyQueuePage'
 import { MyPointsPage } from './pages/delegation/MyPointsPage'
@@ -50,6 +51,11 @@ export default function App() {
           <Route path="/admin/employees/:id/edit" element={
             <AdminRoute>
               <EditEmployeePage />
+            </AdminRoute>
+          } />
+          <Route path="/admin/projects" element={
+            <AdminRoute>
+              <ProjectsPage />
             </AdminRoute>
           } />
 

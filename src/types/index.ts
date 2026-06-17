@@ -64,3 +64,31 @@ export interface OnboardingLog {
   message_preview: string | null
   sent_at: string
 }
+
+export type ProjectCategory = 'project' | 'office_region' | 'other'
+
+export interface Project {
+  id: string
+  code: string
+  name: string
+  category: ProjectCategory
+  is_active: boolean
+  is_cps: boolean
+  is_finance: boolean
+  site_address: string | null
+  site_incharge_name: string | null
+  site_contact: string | null
+  cps_project_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ProjectAliasSource = 'finance_site' | 'cps_name' | 'cps_code' | 'manual'
+
+export interface ProjectAlias {
+  id: string
+  project_id: string
+  alias: string
+  source: ProjectAliasSource
+  created_at: string
+}

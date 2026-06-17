@@ -3,7 +3,7 @@ import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
 import { ModuleCard } from '../components/ModuleCard'
 import { Button } from '../components/ui/button'
-import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2 } from 'lucide-react'
+import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GamificationSection } from '../components/dashboard/GamificationSection'
@@ -154,6 +154,20 @@ export function DashboardPage() {
                 >
                   <Settings size={13} className="mr-1.5" />
                   Admin Panel
+                </Button>
+              </motion.div>
+            )}
+            {isAdmin && (
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/admin/projects')}
+                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
+                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
+                >
+                  <FolderKanban size={13} className="mr-1.5" />
+                  Projects
                 </Button>
               </motion.div>
             )}
