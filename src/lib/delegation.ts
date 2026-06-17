@@ -202,6 +202,27 @@ export async function verifyTask(input: VerifyTaskInput): Promise<void> {
   if (data?.error) throw new Error(data.error)
 }
 
+// Resend / nudge an already-assigned task (gentle before deadline, strict after).
+export async function resendTaskFollowup(taskId: string): Promise<{ sent: boolean; overdue: boolean }> {
+  const { data, error } = await supabase.functions.invoke('del-task-followup', {
+    body: { task_id: taskId },
+  })
+  if (error) throw new Error(error.message)
+  if (data?.error) throw new Error(data.error)
+  return { sent: !!data?.sent, overdue: !!data?.overdue }
+}
+
+// All currently-open delegation tasks (for the org employee board / ranking).
+export async function fetchAllOpenTasks(): Promise<DelTask[]> {
+  const { data, error } = await supabase
+    .from('del_tasks')
+    .select('*, del_points(points, proposed_points, status)')
+    .in('status', ['assigned', 'in_progress', 'submitted', 'under_review'])
+    .order('task_date', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as DelTask[]
+}
+
 // ── Upload attachment to Supabase Storage ─────────────────────────────────────
 
 export async function uploadAttachment(
