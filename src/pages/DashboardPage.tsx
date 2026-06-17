@@ -3,7 +3,7 @@ import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
 import { ModuleCard } from '../components/ModuleCard'
 import { Button } from '../components/ui/button'
-import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban } from 'lucide-react'
+import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban, ClipboardCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GamificationSection } from '../components/dashboard/GamificationSection'
@@ -26,6 +26,20 @@ export function DashboardPage() {
   }
 
   const firstName = employee?.name?.split(' ')[0] ?? ''
+
+  // Single source for the header (desktop) + bottom bar (mobile) nav actions.
+  const role = employee?.role ?? ''
+  const isDelegationRole = DELEGATION_ROLES.includes(role)
+  const navActions = [
+    { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
+    { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
+    { key: 'verify',    label: 'Verify',       Icon: ClipboardList,  show: !!employee?.is_head || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/verify') },
+    { key: 'gam',       label: 'Gamification', Icon: BarChart2,      show: !!employee?.del_super, onClick: () => navigate('/delegation/org') },
+    { key: 'approvals', label: 'Approvals',    Icon: ClipboardCheck, show: role === 'founder' || isAdmin, onClick: () => navigate('/approvals') },
+    { key: 'founder',   label: 'Overview',     Icon: LineChart,      show: role === 'founder' || isAdmin, onClick: () => navigate('/founder') },
+    { key: 'admin',     label: 'Admin',        Icon: Settings,       show: isAdmin, onClick: () => navigate('/admin/employees') },
+    { key: 'projects',  label: 'Projects',     Icon: FolderKanban,   show: isAdmin, onClick: () => navigate('/admin/projects') },
+  ].filter((a) => a.show)
 
   return (
     <div
@@ -69,124 +83,22 @@ export function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* My Points — all launch-role employees + founder/admin */}
-            {(DELEGATION_ROLES.includes(employee?.role ?? '') || employee?.role === 'founder' || isAdmin) && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+          {/* Desktop actions (hidden on mobile — see bottom nav) */}
+          <div className="hidden sm:flex items-center gap-2">
+            {navActions.map((a) => (
+              <motion.div key={a.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate('/delegation/my-points')}
+                  onClick={a.onClick}
                   className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
                   style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
                 >
-                  <BarChart2 size={13} className="mr-1.5" />
-                  My Points
+                  <a.Icon size={13} className="mr-1.5" />
+                  {a.label}
                 </Button>
               </motion.div>
-            )}
-            {/* Delegation: My Day — all launch-role employees + founder/admin */}
-            {(DELEGATION_ROLES.includes(employee?.role ?? '') || employee?.role === 'founder' || isAdmin) && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/delegation/my-day')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <Sun size={13} className="mr-1.5" />
-                  Mera Din
-                </Button>
-              </motion.div>
-            )}
-            {/* Delegation: Verify Queue — heads + founder/admin */}
-            {(employee?.is_head || employee?.role === 'founder' || isAdmin) && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/delegation/verify')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <ClipboardList size={13} className="mr-1.5" />
-                  Verify Queue
-                </Button>
-              </motion.div>
-            )}
-            {/* Org delegation & gamification analytics — delegation super-users.
-                Founders/admins reach the same view inside Founder Overview. */}
-            {employee?.del_super && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/delegation/org')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <BarChart2 size={13} className="mr-1.5" />
-                  Gamification
-                </Button>
-              </motion.div>
-            )}
-            {(employee?.role === 'founder' || isAdmin) && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/approvals')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  📋
-                  Approvals
-                </Button>
-              </motion.div>
-            )}
-            {(employee?.role === 'founder' || isAdmin) && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/founder')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <LineChart size={13} className="mr-1.5" />
-                  Founder Overview
-                </Button>
-              </motion.div>
-            )}
-            {isAdmin && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/admin/employees')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <Settings size={13} className="mr-1.5" />
-                  Admin Panel
-                </Button>
-              </motion.div>
-            )}
-            {isAdmin && (
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/admin/projects')}
-                  className="text-xs border-amber-200 text-amber-800 hover:bg-amber-50 hover:border-amber-300"
-                  style={{ boxShadow: '0 2px 8px rgba(146,64,14,0.10)' }}
-                >
-                  <FolderKanban size={13} className="mr-1.5" />
-                  Projects
-                </Button>
-              </motion.div>
-            )}
+            ))}
             <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
               <Button
                 variant="ghost"
@@ -199,11 +111,19 @@ export function DashboardPage() {
               </Button>
             </motion.div>
           </div>
+
+          {/* Mobile: just a quick sign-out; the rest live in the bottom nav */}
+          <button
+            onClick={handleSignOut}
+            className="sm:hidden text-xs text-stone-400 flex items-center gap-1"
+          >
+            <LogOut size={14} /> Sign out
+          </button>
         </div>
       </motion.header>
 
       {/* Main */}
-      <main className="relative z-10 max-w-5xl mx-auto px-6 py-10">
+      <main className="relative z-10 max-w-5xl mx-auto px-6 pt-10 pb-28 sm:pb-10">
         {/* Greeting */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -279,6 +199,27 @@ export function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Mobile bottom nav — other pages live here (CPS-style footer) */}
+      {navActions.length > 0 && (
+        <nav
+          className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-amber-100"
+          style={{ boxShadow: '0 -2px 16px rgba(146,64,14,0.10)' }}
+        >
+          <div className="flex items-stretch gap-1 overflow-x-auto px-2 py-1.5">
+            {navActions.map((a) => (
+              <button
+                key={a.key}
+                onClick={a.onClick}
+                className="flex flex-col items-center justify-center gap-0.5 px-3 py-1 min-w-[68px] rounded-lg text-stone-600 hover:bg-amber-50 active:bg-amber-100 shrink-0"
+              >
+                <a.Icon size={18} className="text-amber-700" />
+                <span className="text-[10px] leading-none whitespace-nowrap">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
 
       {/* Founder floating avatar — top-left corner, founder only */}
       {employee?.role === 'founder' && <FounderAvatar />}
