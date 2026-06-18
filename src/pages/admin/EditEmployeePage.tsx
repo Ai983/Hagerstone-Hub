@@ -20,7 +20,6 @@ const schema = z.object({
   name: z.string().min(2, 'Name is required'),
   phone: z.string().optional(),
   designation: z.string().optional(),
-  department: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
   is_active: z.boolean(),
@@ -80,7 +79,6 @@ export function EditEmployeePage() {
         name: employee.name,
         phone: employee.phone || '',
         designation: employee.designation || '',
-        department: employee.department || '',
         role: employee.role,
         staff_type: employee.staff_type ?? 'office',
         is_active: employee.is_active,
@@ -110,7 +108,6 @@ export function EditEmployeePage() {
           name: data.name,
           phone: data.phone || null,
           designation: data.designation || null,
-          department: data.department || null,
           role: data.role,
           staff_type: data.staff_type,
           is_active: data.is_active,
@@ -201,15 +198,9 @@ export function EditEmployeePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Designation</Label>
-                <Input {...register('designation')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Department</Label>
-                <Input {...register('department')} />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Designation</Label>
+              <Input {...register('designation')} />
             </div>
           </div>
 

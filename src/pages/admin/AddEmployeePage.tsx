@@ -21,7 +21,6 @@ const schema = z.object({
   email: z.string().email('Enter a valid email'),
   phone: z.string().optional(),
   designation: z.string().optional(),
-  department: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
   module_access: z.array(z.object({
@@ -70,7 +69,6 @@ export function AddEmployeePage() {
           email: data.email,
           phone: data.phone || null,
           designation: data.designation || null,
-          department: data.department || null,
           role: data.role,
         },
       })
@@ -223,10 +221,6 @@ export function AddEmployeePage() {
               <div className="space-y-1.5">
                 <Label>Designation</Label>
                 <Input placeholder="Site Engineer" {...register('designation')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Department</Label>
-                <Input placeholder="Civil" {...register('department')} />
               </div>
             </div>
           </div>
