@@ -369,6 +369,14 @@ function TaskCard({
         🏷️ {typeLabel}
       </span>
 
+      {/* Rejected-and-returned banner — director checked it and sent it back */}
+      {task.reject_reason && (
+        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 leading-relaxed">
+          ↩ <span className="font-semibold">{task.on_behalf_of ?? 'Reviewer'}</span> ne reject kiya: {task.reject_reason}
+          <span className="block text-red-600 mt-0.5">Kripya theek karke firse submit karein.</span>
+        </div>
+      )}
+
       {/* Action buttons — min-h 44px, aligned full-width row */}
       <div className="flex gap-1.5 pt-1">
         {task.status === 'assigned' && (

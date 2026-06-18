@@ -12,8 +12,10 @@ import {
   fetchSubmittedTasks,
   fetchTeamMembers,
   fetchAllActiveEmployees,
+  fetchAllTaskTypes,
   verifyTask,
 } from '../../lib/delegation'
+import { DELEGATION_POINTS } from '../../config/delegation-points'
 import type { DelTask, AgentMeta } from '../../types/delegation'
 import type { Employee } from '../../types'
 import { PointEntryCard } from '../../components/delegation/PointEntryCard'
@@ -57,6 +59,7 @@ function TaskRow({
   onAdjust,
   onReject,
   loading,
+  maxPts,
 }: {
   task: DelTask
   nameMap: Map<string, string>
@@ -64,6 +67,7 @@ function TaskRow({
   onAdjust:  (id: string, pts: number) => void
   onReject:  (id: string, reason: string) => void
   loading: string | null
+  maxPts?: number
 }) {
   const [mode, setMode]           = useState<'actions' | 'adjust' | 'reject'>('actions')
   const [adjustPts, setAdjustPts] = useState<string>('')
@@ -111,6 +115,11 @@ function TaskRow({
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold text-amber-800">{proposed}</span>
                 <span className="text-sm text-stone-400">pts (AI proposal)</span>
+                {maxPts != null && (
+                  <span className="text-xs font-medium text-stone-500 bg-stone-100 border border-stone-200 px-1.5 py-0.5 rounded">
+                    Max {maxPts}
+                  </span>
+                )}
               </div>
               {agentMeta && confidencePill(agentMeta.confidence)}
             </div>
@@ -226,15 +235,21 @@ function TaskRow({
               exit={{ opacity: 0, height: 0 }}
               className="space-y-2"
             >
-              <p className="text-xs text-stone-500">AI ne {proposed} suggest kiya — aap change kar sakte ho:</p>
+              <p className="text-xs text-stone-500">
+                AI ne {proposed} suggest kiya{maxPts != null ? ` — max ${maxPts} pts de sakte hain` : ''} — aap change kar sakte ho:
+              </p>
               <Input
                 type="number"
                 min={0}
+                max={maxPts}
                 value={adjustPts}
                 onChange={(e) => setAdjustPts(e.target.value)}
                 placeholder="Final points…"
                 className="text-sm h-10"
               />
+              {maxPts != null && Number(adjustPts) > maxPts && (
+                <p className="text-xs text-red-600">Max {maxPts} pts allowed (decided at assignment).</p>
+              )}
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -246,9 +261,10 @@ function TaskRow({
                 </Button>
                 <Button
                   size="sm"
-                  disabled={isLoading || !adjustPts || Number(adjustPts) < 0}
+                  disabled={isLoading || !adjustPts || Number(adjustPts) < 0 || (maxPts != null && Number(adjustPts) > maxPts)}
                   onClick={() => {
-                    onAdjust(task.id, Number(adjustPts))
+                    const pts = maxPts != null ? Math.min(Number(adjustPts), maxPts) : Number(adjustPts)
+                    onAdjust(task.id, pts)
                     setMode('actions')
                   }}
                   className="flex-1 text-xs bg-violet-600 hover:bg-violet-700 text-white h-10"
@@ -332,6 +348,15 @@ export function VerifyQueuePage() {
 
   const nameMap    = buildNameMap(allEmployees as Employee[])
   const invalidate = () => qc.invalidateQueries({ queryKey: queueKey })
+
+  // Max awardable points per task (decided at assignment): custom Other points,
+  // else the task type's tier ceiling. Mirrors the server-side clamp.
+  const { data: taskTypes = [] } = useQuery({ queryKey: ['del_task_types', 'all'], queryFn: fetchAllTaskTypes })
+  const tierMap = new Map<string, number>()
+  ;(taskTypes as { code: string; effort_tier: string }[]).forEach((t) =>
+    tierMap.set(t.code, (DELEGATION_POINTS.tier as Record<string, number>)[t.effort_tier] ?? 0))
+  const maxFor = (t: DelTask): number | undefined =>
+    t.custom_points ?? (t.type_code ? tierMap.get(t.type_code) : undefined)
 
   const { mutate: doApprove } = useMutation({
     mutationFn: (id: string) => {
@@ -448,6 +473,7 @@ export function VerifyQueuePage() {
                         onAdjust={(id, pts) => doAdjust({ id, pts })}
                         onReject={(id, reason) => doReject({ id, reason })}
                         loading={actLoading}
+                        maxPts={maxFor(task)}
                       />
                     </motion.div>
                   ))}
@@ -476,6 +502,7 @@ export function VerifyQueuePage() {
                         onAdjust={(id, pts) => doAdjust({ id, pts })}
                         onReject={(id, reason) => doReject({ id, reason })}
                         loading={actLoading}
+                        maxPts={maxFor(task)}
                       />
                     </motion.div>
                   ))}
