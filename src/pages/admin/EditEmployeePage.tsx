@@ -22,6 +22,7 @@ const schema = z.object({
   designation: z.string().optional(),
   department: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
+  staff_type: z.enum(['office', 'site', 'both']),
   is_active: z.boolean(),
   module_access: z.array(z.object({
     module_id: z.string(),
@@ -68,6 +69,7 @@ export function EditEmployeePage() {
     resolver: zodResolver(schema),
     defaultValues: {
       is_active: true,
+      staff_type: 'office',
       module_access: MODULE_REGISTRY.map(m => ({ module_id: m.id, enabled: false })),
     },
   })
@@ -80,6 +82,7 @@ export function EditEmployeePage() {
         designation: employee.designation || '',
         department: employee.department || '',
         role: employee.role,
+        staff_type: employee.staff_type ?? 'office',
         is_active: employee.is_active,
         module_access: MODULE_REGISTRY.map(m => ({
           module_id: m.id,
@@ -109,6 +112,7 @@ export function EditEmployeePage() {
           designation: data.designation || null,
           department: data.department || null,
           role: data.role,
+          staff_type: data.staff_type,
           is_active: data.is_active,
         })
         .eq('id', id)
@@ -237,6 +241,27 @@ export function EditEmployeePage() {
               {employee?.role === 'admin' && (
                 <p className="text-xs text-stone-400">Admin role cannot be changed.</p>
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Staff type *</Label>
+              <Controller
+                name="staff_type"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Office / Site / Both" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="office">Office staff</SelectItem>
+                      <SelectItem value="site">Site staff</SelectItem>
+                      <SelectItem value="both">Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
             </div>
 
             <div className="space-y-3">

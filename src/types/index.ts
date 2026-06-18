@@ -38,6 +38,8 @@ export interface Employee {
    *  gamification (assign company-wide, verify any dept, org analytics) WITHOUT
    *  finance/CPS or admin-panel access. Granted per-employee. */
   del_super: boolean
+  /** Office vs site classification — drives follow-up cadence (future). */
+  staff_type: 'office' | 'site' | 'both'
   must_change_password: boolean
   onboarded_at: string | null
   created_at: string

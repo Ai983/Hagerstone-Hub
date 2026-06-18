@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -15,6 +15,7 @@ import {
   fetchAllActiveEmployees,
   fetchActiveProjects,
   createTask,
+  createTaskType,
   moveToInProgress,
   submitTask,
   uploadAttachment,
@@ -499,6 +500,7 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
     return first?.auth_user_id ?? employee.auth_user_id ?? ''
   })()
 
+  const qc = useQueryClient()
   const [title, setTitle]               = useState('')
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
   const [taskDate, setTaskDate]         = useState(today())
@@ -506,9 +508,14 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
   const [assignedTo, setAssignedTo]     = useState(firstAssignableUid)
   const [projectId, setProjectId]       = useState('')
   const [onBehalfOf, setOnBehalfOf]     = useState('')
-  const [otherTitle, setOtherTitle]     = useState('')
-  const [otherPoints, setOtherPoints]   = useState('')
   const [saving, setSaving]             = useState(false)
+
+  // Add-new-type panel
+  const [addOpen, setAddOpen]           = useState(false)
+  const [newLabel, setNewLabel]         = useState('')
+  const [newCategory, setNewCategory]   = useState('')
+  const [newTier, setNewTier]           = useState('S')
+  const [adding, setAdding]             = useState(false)
 
   const selfUid = employee.auth_user_id ?? ''
 
@@ -531,26 +538,32 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
   const resolvedRoleGroup =
     teamMembers.find((m) => m.auth_user_id === assignedTo)?.role ?? employee.role
 
-  // Role-specific types first, fall back to all
-  const roleTaskTypes = taskTypes.filter((t) => t.role_group === resolvedRoleGroup)
-  const visibleTaskTypes = roleTaskTypes.length > 0 ? roleTaskTypes : taskTypes
+  // Open picker: show ALL active task types, grouped by category (not role-filtered)
+  const visibleTaskTypes = taskTypes
+  const categories = Array.from(new Set(taskTypes.map((t) => t.role_group))).sort()
 
-  // Group by department for display
+  // Group by category for display
   const grouped = visibleTaskTypes.reduce<Record<string, DelTaskType[]>>((acc, t) => {
     if (!acc[t.role_group]) acc[t.role_group] = []
     acc[t.role_group].push(t)
     return acc
   }, {})
 
-  // "Other" type → assigner writes a custom title + sets points (auto-awarded on verify)
-  const otherCode = visibleTaskTypes.find((t) => t.label.trim().toLowerCase() === 'other')?.code ?? null
-  const otherSelected = otherCode ? selectedTypes.has(otherCode) : false
-
-  // Clear selections when assignee changes
-  useEffect(() => {
-    setSelectedTypes(new Set())
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedRoleGroup])
+  async function handleAddType() {
+    if (!newLabel.trim() || !newCategory) return
+    setAdding(true)
+    try {
+      const t = await createTaskType(newLabel.trim(), newCategory, newTier)
+      await qc.invalidateQueries({ queryKey: ['del_task_types', 'all'] })
+      setSelectedTypes((prev) => new Set(prev).add(t.code))
+      setNewLabel(''); setAddOpen(false)
+      toast.success('Naya type add ho gaya!')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Type add nahi hua')
+    } finally {
+      setAdding(false)
+    }
+  }
 
   function toggleType(code: string) {
     setSelectedTypes((prev) => {
@@ -568,23 +581,17 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (selectedTypes.size === 0) return
-    const codes = Array.from(selectedTypes)
-    const hasNonOther = codes.some((c) => c !== otherCode)
-    if (hasNonOther && !title.trim()) return
-    if (otherSelected && (!otherTitle.trim() || !(Number(otherPoints) > 0))) return
+    if (selectedTypes.size === 0 || !title.trim()) return
     if (assigningToOther && !onBehalfOf) return
+    const codes = Array.from(selectedTypes)
     setSaving(true)
     try {
       // Create one task per selected type in parallel
       await Promise.all(
         codes.map((code) => {
           const t = visibleTaskTypes.find((x) => x.code === code)
-          const isOther = code === otherCode
           return createTask({
-            title: isOther
-              ? otherTitle.trim()
-              : (codes.length === 1 ? title : `${title} — ${t?.label ?? code}`),
+            title: codes.length === 1 ? title : `${title} — ${t?.label ?? code}`,
             description: '',
             type_code: code,
             task_date: taskDate,
@@ -592,7 +599,6 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
             assigned_to: assignedTo,
             assigned_by: selfUid,
             project_id: projectId || null,
-            custom_points: isOther ? Math.round(Number(otherPoints)) : null,
             on_behalf_of: assigningToOther ? onBehalfOf : null,
             due_time: dueTime || null,
           })
@@ -784,26 +790,60 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
                 </div>
               )}
 
-              {/* Other → custom title + points (auto-awarded on verify) */}
-              {otherSelected && (
-                <div className="mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50/60 space-y-2">
-                  <Label className="text-xs text-amber-800 font-semibold block">Other — custom kaam</Label>
-                  <Input
-                    value={otherTitle}
-                    onChange={(e) => setOtherTitle(e.target.value)}
-                    placeholder="Is kaam ka naam likhein"
-                    className="text-sm h-10 bg-white"
-                  />
-                  <Input
-                    type="number"
-                    min={1}
-                    value={otherPoints}
-                    onChange={(e) => setOtherPoints(e.target.value)}
-                    placeholder="Points (e.g. 15)"
-                    className="text-sm h-10 bg-white"
-                  />
-                </div>
-              )}
+              {/* Add a brand-new task type — persists forever under its category */}
+              <div className="mt-3">
+                {!addOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => { setAddOpen(true); setNewCategory(categories[0] ?? '') }}
+                    className="text-xs font-medium text-amber-700 hover:text-amber-800"
+                  >
+                    + Naya type banayein
+                  </button>
+                ) : (
+                  <div className="p-3 rounded-xl border border-amber-300 bg-amber-50/60 space-y-2">
+                    <Label className="text-xs text-amber-800 font-semibold block">Naya Task Type</Label>
+                    <Input
+                      value={newLabel}
+                      onChange={(e) => setNewLabel(e.target.value)}
+                      placeholder="Type ka naam (e.g. Vendor onboarding)"
+                      className="text-sm h-10 bg-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        className="text-sm h-10 rounded-lg border border-input bg-white px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      >
+                        {categories.map((c) => <option key={c} value={c}>{DEPT_LABEL[c] ?? c}</option>)}
+                      </select>
+                      <select
+                        value={newTier}
+                        onChange={(e) => setNewTier(e.target.value)}
+                        className="text-sm h-10 rounded-lg border border-input bg-white px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      >
+                        {(['S', 'M', 'L', 'XL'] as const).map((t) => (
+                          <option key={t} value={t}>{t} · {TIER_PTS[t]}pts</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-9" onClick={() => setAddOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={adding || !newLabel.trim() || !newCategory}
+                        onClick={handleAddType}
+                        className="flex-1 text-xs h-9 bg-amber-700 hover:bg-amber-800 text-white"
+                      >
+                        {adding ? <Loader2 size={12} className="animate-spin" /> : 'Add Type'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -817,8 +857,7 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
               disabled={
                 saving ||
                 selectedTypes.size === 0 ||
-                (Array.from(selectedTypes).some((c) => c !== otherCode) && !title.trim()) ||
-                (otherSelected && (!otherTitle.trim() || !(Number(otherPoints) > 0))) ||
+                !title.trim() ||
                 (assigningToOther && !onBehalfOf)
               }
               className="flex-1 text-sm h-11 bg-amber-700 hover:bg-amber-800 text-white font-medium"

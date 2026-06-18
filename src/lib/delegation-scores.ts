@@ -190,6 +190,22 @@ export function useDelegationScores(period: DelegationPeriod) {
   })
 }
 
+// Company-wide INDIVIDUAL leaderboard (no department partition) — admin/founder view.
+export async function fetchIndividualLeaderboard(period: DelegationPeriod): Promise<DelegationScoreRow[]> {
+  const { data, error } = await supabase.rpc('get_delegation_leaderboard', { p_period: period })
+  if (error) throw error
+  return (data ?? []) as DelegationScoreRow[]
+}
+
+export function useIndividualLeaderboard(period: DelegationPeriod) {
+  return useQuery({
+    queryKey: ['del_individual_lb', period],
+    queryFn:  () => fetchIndividualLeaderboard(period),
+    staleTime: 5_000,
+    refetchInterval: 60_000,
+  })
+}
+
 export function useMyRecentPoints(authUserId: string | undefined, limit = 30) {
   return useQuery({
     queryKey: ['del_my_pts', authUserId, limit],

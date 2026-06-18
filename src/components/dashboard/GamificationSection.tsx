@@ -5,7 +5,7 @@ import { PointsCard } from './PointsCard'
 import { Leaderboard } from './Leaderboard'
 import { TeamSummaryHero } from './TeamSummaryHero'
 import { DelegationPointsCard } from './DelegationPointsCard'
-import { DelegationLeaderboard } from './DelegationLeaderboard'
+import { IndividualLeaderboard } from './IndividualLeaderboard'
 import type { DelegationPeriod } from '../../lib/delegation-scores'
 import {
   useMyRecentPoints,
@@ -91,13 +91,7 @@ export function GamificationSection() {
             period={delPeriod}
             onPeriodChange={setDelPeriod}
           />
-          {isLeaderViewer && (
-            <DelegationLeaderboard
-              roleGroup={roleGroup}
-              authUserId={authUserId}
-              period={delPeriod}
-            />
-          )}
+          {isLeaderViewer && <IndividualLeaderboard />}
         </>
       )}
     </div>

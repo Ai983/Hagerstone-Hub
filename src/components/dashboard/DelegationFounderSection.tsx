@@ -9,7 +9,7 @@ import {
   type DelegationPeriod,
   type OrgFeedRow,
 } from '../../lib/delegation-scores'
-import { DelegationLeaderboard } from './DelegationLeaderboard'
+import { IndividualLeaderboard } from './IndividualLeaderboard'
 import { DELEGATION_DEPARTMENTS, ROLE_LABELS, ROLE_SHORT_LABELS } from '../../config/roles'
 import type { RoleId } from '../../types'
 
@@ -95,18 +95,10 @@ export function DelegationFounderSection() {
 
       {/* Per-role leaderboards + live feed in a grid */}
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Leaderboards */}
+        {/* Individual company-wide ranking */}
         <div className="space-y-3">
-          <h3 className="text-xs font-medium text-stone-500 uppercase tracking-wide">Per-Role Rankings</h3>
-          {DELEGATION_DEPARTMENTS.map((role) => (
-            <DelegationLeaderboard
-              key={role}
-              roleGroup={role}
-              authUserId=""   // founder view: no "you" highlight
-              period={period}
-              compact
-            />
-          ))}
+          <h3 className="text-xs font-medium text-stone-500 uppercase tracking-wide">Top Performers</h3>
+          <IndividualLeaderboard />
         </div>
 
         {/* Live feed */}

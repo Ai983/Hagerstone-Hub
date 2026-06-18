@@ -23,6 +23,7 @@ const schema = z.object({
   designation: z.string().optional(),
   department: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
+  staff_type: z.enum(['office', 'site', 'both']),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
@@ -43,6 +44,7 @@ export function AddEmployeePage() {
     resolver: zodResolver(schema),
     defaultValues: {
       role: 'site_engineer',
+      staff_type: 'site',
       module_access: MODULE_REGISTRY.map(m => ({
         module_id: m.id,
         enabled: ROLE_DEFAULT_MODULES['site_engineer'].includes(m.id),
@@ -52,6 +54,7 @@ export function AddEmployeePage() {
 
   const handleRoleChange = (role: RoleId) => {
     setValue('role', role)
+    setValue('staff_type', role === 'site_engineer' ? 'site' : 'office')
     const defaults = ROLE_DEFAULT_MODULES[role]
     setValue('module_access', MODULE_REGISTRY.map(m => ({
       module_id: m.id,
@@ -81,6 +84,9 @@ export function AddEmployeePage() {
         p_modules: data.module_access.map(m => ({ module_id: m.module_id, enabled: m.enabled })),
       })
       if (syncError) throw syncError
+
+      // Office/Site/Both classification (drives future follow-up cadence)
+      await supabase.from('employees').update({ staff_type: data.staff_type }).eq('id', created.employee.id)
 
       return created
     },
@@ -249,6 +255,27 @@ export function AddEmployeePage() {
                   </Select>
                 )}
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Staff type *</Label>
+              <Controller
+                name="staff_type"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Office / Site / Both" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="office">Office staff</SelectItem>
+                      <SelectItem value="site">Site staff</SelectItem>
+                      <SelectItem value="both">Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
             </div>
 
             <div className="space-y-3">

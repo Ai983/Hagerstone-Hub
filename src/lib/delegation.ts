@@ -15,6 +15,16 @@ export async function fetchTaskTypes(roleGroup: string): Promise<DelTaskType[]> 
   return data ?? []
 }
 
+// Create a NEW task type that persists in del_task_types (admin/founder/del_super).
+export async function createTaskType(label: string, category: string, tier: string): Promise<DelTaskType> {
+  const { data, error } = await supabase.functions.invoke('del-create-task-type', {
+    body: { label, category, tier },
+  })
+  if (error) throw new Error(error.message)
+  if (data?.error) throw new Error(data.error)
+  return data.task_type as DelTaskType
+}
+
 export async function fetchAllTaskTypes(): Promise<DelTaskType[]> {
   const { data, error } = await supabase
     .from('del_task_types')
