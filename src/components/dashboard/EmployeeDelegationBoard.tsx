@@ -108,7 +108,8 @@ export function EmployeeDelegationBoard() {
   }
 
   return (
-    <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-amber-100 overflow-hidden" style={{ boxShadow: '0 4px 20px rgba(146,64,14,0.08)' }}>
+    <>
+      <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-amber-100 overflow-hidden" style={{ boxShadow: '0 4px 20px rgba(146,64,14,0.08)' }}>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-amber-100/80">
         <h2 className="text-sm font-semibold text-stone-800">Team — Delegation</h2>
@@ -206,7 +207,10 @@ export function EmployeeDelegationBoard() {
         })}
       </div>
 
-      {/* Naya Kaam modal — reuses the delegation create form */}
+      </div>
+
+      {/* Naya Kaam modal — rendered OUTSIDE the blurred/overflow card so the
+          fixed overlay covers the whole window (like the Mera Din page). */}
       <AnimatePresence>
         {createOpen && employee && (
           <CreateTaskForm
@@ -218,6 +222,6 @@ export function EmployeeDelegationBoard() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </>
   )
 }

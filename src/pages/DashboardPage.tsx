@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
@@ -8,6 +9,8 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GamificationSection } from '../components/dashboard/GamificationSection'
 import { EmployeeDelegationBoard } from '../components/dashboard/EmployeeDelegationBoard'
+import { DelegationPointsCard } from '../components/dashboard/DelegationPointsCard'
+import type { DelegationPeriod } from '../lib/delegation-scores'
 import { getPlacement } from '../lib/gamification'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { FounderAvatar } from '../components/FounderAvatar'
@@ -34,6 +37,7 @@ export function DashboardPage() {
   // Delegation super-users (Ritu) get the org employee board first instead of
   // gamification; their team standings live on the Gamification page.
   const isEmpBoard = !!employee?.del_super
+  const [delPeriod, setDelPeriod] = useState<DelegationPeriod>('all')
   const navActions = [
     { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
     { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
@@ -207,6 +211,18 @@ export function DashboardPage() {
         {placement === 'bottom' && !isEmpBoard && (
           <div className="mt-8">
             <GamificationSection />
+          </div>
+        )}
+
+        {/* Ritu / del_super: own delegation points — below the board + modules */}
+        {isEmpBoard && employee?.auth_user_id && (
+          <div className="mt-8 max-w-md">
+            <DelegationPointsCard
+              authUserId={employee.auth_user_id}
+              roleGroup={employee.role}
+              period={delPeriod}
+              onPeriodChange={setDelPeriod}
+            />
           </div>
         )}
       </main>
