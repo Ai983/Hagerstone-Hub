@@ -40,6 +40,13 @@ export interface Employee {
   del_super: boolean
   /** Office vs site classification — drives follow-up cadence (future). */
   staff_type: 'office' | 'site' | 'both'
+  /** Hub-authoritative per-system roles/blocks (synced to finance.employees / cps.cps_users). */
+  finance_role: string | null
+  finance_active: boolean
+  finance_link_email: string | null
+  cps_role: string | null
+  cps_active: boolean
+  cps_link_email: string | null
   must_change_password: boolean
   onboarded_at: string | null
   created_at: string

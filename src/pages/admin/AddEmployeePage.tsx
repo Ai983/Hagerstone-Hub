@@ -23,6 +23,12 @@ const schema = z.object({
   designation: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
+  finance_role: z.string(),
+  finance_active: z.boolean(),
+  finance_link_email: z.string().optional(),
+  cps_role: z.string(),
+  cps_active: z.boolean(),
+  cps_link_email: z.string().optional(),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
@@ -30,6 +36,16 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+
+// 'none' = no access (Radix Select disallows empty value); mapped to null on save.
+const FINANCE_ROLE_OPTS: [string, string][] = [
+  ['none', 'No access'], ['employee', 'Employee'], ['approver_s1', 'S1 approver'], ['approver_s2', 'S2 approver'],
+  ['finance', 'Finance'], ['manager', 'Manager'], ['head', 'Head'], ['founder', 'Founder'],
+]
+const CPS_ROLE_OPTS: [string, string][] = [
+  ['none', 'No access'], ['requestor', 'Requestor'], ['procurement_head', 'Procurement Head'], ['management', 'Management'],
+  ['accounts_team', 'Accounts Team'], ['design_team', 'Design Team'], ['it_head', 'IT Head'],
+]
 
 export function AddEmployeePage() {
   const navigate = useNavigate()
@@ -44,6 +60,8 @@ export function AddEmployeePage() {
     defaultValues: {
       role: 'site_engineer',
       staff_type: 'site',
+      finance_role: 'none', finance_active: true, finance_link_email: '',
+      cps_role: 'none', cps_active: true, cps_link_email: '',
       module_access: MODULE_REGISTRY.map(m => ({
         module_id: m.id,
         enabled: ROLE_DEFAULT_MODULES['site_engineer'].includes(m.id),
@@ -83,8 +101,17 @@ export function AddEmployeePage() {
       })
       if (syncError) throw syncError
 
-      // Office/Site/Both classification (drives future follow-up cadence)
-      await supabase.from('employees').update({ staff_type: data.staff_type }).eq('id', created.employee.id)
+      // Office/Site classification + Hub-authoritative per-system roles
+      await supabase.from('employees').update({
+        staff_type: data.staff_type,
+        finance_role: data.finance_role === 'none' ? null : data.finance_role,
+        finance_active: data.finance_active,
+        finance_link_email: data.finance_link_email || null,
+        cps_role: data.cps_role === 'none' ? null : data.cps_role,
+        cps_active: data.cps_active,
+        cps_link_email: data.cps_link_email || null,
+      }).eq('id', created.employee.id)
+      await supabase.rpc('sync_employee_systems', { p_employee_id: created.employee.id })
 
       return created
     },
@@ -270,6 +297,54 @@ export function AddEmployeePage() {
                 )}
               />
               <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
+            </div>
+
+            {/* System Access & Roles — Hub-authoritative; synced to Finance/CPS on save */}
+            <div className="space-y-3 border-t border-stone-100 pt-4">
+              <Label className="text-sm">System Access &amp; Roles</Label>
+              <p className="text-xs text-stone-400">Finance/CPS roles apply once that module is enabled below (and the system account exists).</p>
+
+              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-700">💰 Finance</span>
+                  <Controller name="finance_active" control={control} render={({ field }) => (
+                    <label className="flex items-center gap-2 text-xs text-stone-500">
+                      {field.value ? 'Active' : 'Blocked'}
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </label>
+                  )} />
+                </div>
+                <Controller name="finance_role" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
+                    <SelectContent>
+                      {FINANCE_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )} />
+                <Input placeholder="Linked Finance email (only if different)" {...register('finance_link_email')} className="text-xs" />
+              </div>
+
+              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-700">📦 CPS (Procurement)</span>
+                  <Controller name="cps_active" control={control} render={({ field }) => (
+                    <label className="flex items-center gap-2 text-xs text-stone-500">
+                      {field.value ? 'Active' : 'Blocked'}
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </label>
+                  )} />
+                </div>
+                <Controller name="cps_role" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
+                    <SelectContent>
+                      {CPS_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )} />
+                <Input placeholder="Linked CPS email (only if different)" {...register('cps_link_email')} className="text-xs" />
+              </div>
             </div>
 
             <div className="space-y-3">

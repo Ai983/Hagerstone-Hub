@@ -22,6 +22,12 @@ const schema = z.object({
   designation: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
+  finance_role: z.string(),
+  finance_active: z.boolean(),
+  finance_link_email: z.string().optional(),
+  cps_role: z.string(),
+  cps_active: z.boolean(),
+  cps_link_email: z.string().optional(),
   is_active: z.boolean(),
   module_access: z.array(z.object({
     module_id: z.string(),
@@ -30,6 +36,16 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+
+// 'none' = no access (Radix Select disallows empty value); mapped to null on save.
+const FINANCE_ROLE_OPTS: [string, string][] = [
+  ['none', 'No access'], ['employee', 'Employee'], ['approver_s1', 'S1 approver'], ['approver_s2', 'S2 approver'],
+  ['finance', 'Finance'], ['manager', 'Manager'], ['head', 'Head'], ['founder', 'Founder'],
+]
+const CPS_ROLE_OPTS: [string, string][] = [
+  ['none', 'No access'], ['requestor', 'Requestor'], ['procurement_head', 'Procurement Head'], ['management', 'Management'],
+  ['accounts_team', 'Accounts Team'], ['design_team', 'Design Team'], ['it_head', 'IT Head'],
+]
 
 export function EditEmployeePage() {
   const { id } = useParams<{ id: string }>()
@@ -69,6 +85,8 @@ export function EditEmployeePage() {
     defaultValues: {
       is_active: true,
       staff_type: 'office',
+      finance_role: 'none', finance_active: true, finance_link_email: '',
+      cps_role: 'none', cps_active: true, cps_link_email: '',
       module_access: MODULE_REGISTRY.map(m => ({ module_id: m.id, enabled: false })),
     },
   })
@@ -81,6 +99,12 @@ export function EditEmployeePage() {
         designation: employee.designation || '',
         role: employee.role,
         staff_type: employee.staff_type ?? 'office',
+        finance_role: employee.finance_role ?? 'none',
+        finance_active: employee.finance_active ?? true,
+        finance_link_email: employee.finance_link_email ?? '',
+        cps_role: employee.cps_role ?? 'none',
+        cps_active: employee.cps_active ?? true,
+        cps_link_email: employee.cps_link_email ?? '',
         is_active: employee.is_active,
         module_access: MODULE_REGISTRY.map(m => ({
           module_id: m.id,
@@ -110,6 +134,12 @@ export function EditEmployeePage() {
           designation: data.designation || null,
           role: data.role,
           staff_type: data.staff_type,
+          finance_role: data.finance_role === 'none' ? null : data.finance_role,
+          finance_active: data.finance_active,
+          finance_link_email: data.finance_link_email || null,
+          cps_role: data.cps_role === 'none' ? null : data.cps_role,
+          cps_active: data.cps_active,
+          cps_link_email: data.cps_link_email || null,
           is_active: data.is_active,
         })
         .eq('id', id)
@@ -122,6 +152,10 @@ export function EditEmployeePage() {
         p_modules: data.module_access.map(m => ({ module_id: m.module_id, enabled: m.enabled })),
       })
       if (syncError) throw syncError
+
+      // Hub-wins: project the chosen Finance/CPS roles + active onto the linked system rows
+      const { error: sysError } = await supabase.rpc('sync_employee_systems', { p_employee_id: id })
+      if (sysError) throw sysError
     },
     onSuccess: () => {
       toast.success('Employee updated successfully')
@@ -253,6 +287,54 @@ export function EditEmployeePage() {
                 )}
               />
               <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
+            </div>
+
+            {/* System Access & Roles — Hub-authoritative; synced to Finance/CPS on save */}
+            <div className="space-y-3 border-t border-stone-100 pt-4">
+              <Label className="text-sm">System Access &amp; Roles</Label>
+              <p className="text-xs text-stone-400">Set each system's role + block here. The Hub overwrites Finance/CPS on save.</p>
+
+              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-700">💰 Finance</span>
+                  <Controller name="finance_active" control={control} render={({ field }) => (
+                    <label className="flex items-center gap-2 text-xs text-stone-500">
+                      {field.value ? 'Active' : 'Blocked'}
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </label>
+                  )} />
+                </div>
+                <Controller name="finance_role" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
+                    <SelectContent>
+                      {FINANCE_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )} />
+                <Input placeholder="Linked Finance email (only if different)" {...register('finance_link_email')} className="text-xs" />
+              </div>
+
+              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-700">📦 CPS (Procurement)</span>
+                  <Controller name="cps_active" control={control} render={({ field }) => (
+                    <label className="flex items-center gap-2 text-xs text-stone-500">
+                      {field.value ? 'Active' : 'Blocked'}
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </label>
+                  )} />
+                </div>
+                <Controller name="cps_role" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
+                    <SelectContent>
+                      {CPS_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )} />
+                <Input placeholder="Linked CPS email (only if different)" {...register('cps_link_email')} className="text-xs" />
+              </div>
             </div>
 
             <div className="space-y-3">
