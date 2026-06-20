@@ -5,7 +5,7 @@ import { STATUS_PILL, shortDate, type PillStatus } from '../../lib/delegation-ui
 // ── Status pill ─────────────────────────────────────────────────────────────
 
 export function StatusPill({ status }: { status: PillStatus }) {
-  const cfg = STATUS_PILL[status]
+  const cfg = STATUS_PILL[status] ?? { label: String(status ?? '—'), cls: 'bg-stone-100 text-stone-500 border-stone-200' }
   return (
     <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${cfg.cls}`}>
       {cfg.label}

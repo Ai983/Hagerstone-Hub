@@ -42,7 +42,7 @@ function confidencePill(confidence: AgentMeta['confidence']) {
     high:   { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'High confidence' },
     medium: { cls: 'bg-amber-50 text-amber-700 border-amber-200',       label: 'Medium confidence' },
     low:    { cls: 'bg-red-50 text-red-600 border-red-200',             label: 'Low confidence' },
-  }[confidence]
+  }[confidence] ?? { cls: 'bg-stone-100 text-stone-500 border-stone-200', label: confidence ? `${confidence} confidence` : 'Confidence n/a' }
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${cfg.cls}`}>
       {cfg.label}
