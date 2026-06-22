@@ -4,7 +4,8 @@ import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
 import { ModuleCard } from '../components/ModuleCard'
 import { Button } from '../components/ui/button'
-import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban, ClipboardCheck, Trophy } from 'lucide-react'
+import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban, ClipboardCheck, Trophy, UserRound } from 'lucide-react'
+import { isLeadership } from '../components/LeadershipRoute'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { GamificationSection } from '../components/dashboard/GamificationSection'
@@ -42,7 +43,8 @@ export function DashboardPage() {
     { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
     { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
     { key: 'verify',    label: 'Verify',       Icon: ClipboardList,  show: !!employee?.is_head || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/verify') },
-    { key: 'leaderboard', label: 'Leaderboard', Icon: Trophy,        show: true, onClick: () => navigate('/leaderboard') },
+    { key: 'leaderboard', label: 'Leaderboard', Icon: Trophy,        show: isLeadership(employee), onClick: () => navigate('/leaderboard') },
+    { key: 'myscore',   label: 'My Scorecard', Icon: UserRound,      show: !!employee?.auth_user_id, onClick: () => navigate(`/employee/${employee?.auth_user_id}`) },
     { key: 'gam',       label: 'Gamification', Icon: BarChart2,      show: !!employee?.del_super, onClick: () => navigate('/delegation/org') },
     { key: 'approvals', label: 'Approvals',    Icon: ClipboardCheck, show: role === 'founder' || isAdmin, onClick: () => navigate('/approvals') },
     { key: 'founder',   label: 'Overview',     Icon: LineChart,      show: role === 'founder' || isAdmin, onClick: () => navigate('/founder') },

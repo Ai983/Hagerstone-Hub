@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
+import { isLeadership } from '../components/LeadershipRoute'
 import { ArrowLeft, ClipboardCheck, Activity, Wallet, ShieldCheck, CheckCircle2, Clock } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import {
@@ -32,7 +34,16 @@ function Card({ title, icon, accent, children }: { title: string; icon: React.Re
 export function EmployeePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { employee } = useAuth()
   const [period, setPeriod] = useState<WorkPeriod>('all')
+
+  // Staff may only view their own scorecard; send them to it if they try another.
+  useEffect(() => {
+    if (employee && !isLeadership(employee) && id && id !== employee.auth_user_id) {
+      navigate(`/employee/${employee.auth_user_id}`, { replace: true })
+    }
+  }, [employee, id, navigate])
+
   const { data, isLoading, error } = useEmployeeScorecard(id, period)
 
   if (isLoading) return <Centered>Loading scorecard…</Centered>

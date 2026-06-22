@@ -19,6 +19,7 @@ import { DelegationOrgPage } from './pages/delegation/DelegationOrgPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
 import { EmployeePage } from './pages/EmployeePage'
+import { LeadershipRoute } from './components/LeadershipRoute'
 
 const queryClient = new QueryClient()
 
@@ -94,9 +95,9 @@ export default function App() {
           } />
 
           <Route path="/leaderboard" element={
-            <ProtectedRoute>
+            <LeadershipRoute>
               <LeaderboardPage />
-            </ProtectedRoute>
+            </LeadershipRoute>
           } />
           <Route path="/employee/:id" element={
             <ProtectedRoute>
