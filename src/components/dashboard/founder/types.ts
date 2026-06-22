@@ -67,6 +67,83 @@ export interface ProjectCostRow {
   grand_total: number
 }
 
+// ── Imprest & Finance Ageing report (live version of the static HTML report) ──
+export type AgeBand = '0-7' | '8-15' | '16-30' | '31-60' | '60+'
+
+export interface ImprestAgeingStage {
+  stage_key: string
+  label: string
+  owner: string
+  count: number
+  value: number
+  oldest: number
+  avg: number
+  bands: Record<AgeBand, number>
+}
+
+export interface ImprestAgeingItem {
+  ref: string
+  stage_key: string
+  site: string | null
+  requester: string
+  category: string | null
+  amount: number
+  net_payable: number | null
+  submitted_at: string
+  age_days: number
+  band: AgeBand
+  flag: 'paid_not_closed' | 'rejected_in_pipeline' | null
+}
+
+export interface ConcentrationRow {
+  name: string
+  items: number
+  gt30: number
+  gross: number
+  oldest: number
+}
+
+export interface PoPaymentRow {
+  ref: string
+  supplier: string | null
+  project: string | null
+  status: 'pending_payment' | 'partially_paid'
+  po_value: number
+  paid: number | null
+  outstanding: number
+  ingested: string
+  age_days: number
+  is_test: boolean
+}
+
+export interface ImprestAgeing {
+  as_of: string
+  kpis: {
+    stuck_count: number
+    flagged_count: number
+    gross_value: number
+    approved_awaiting_payout: number
+    oldest_days: number
+    oldest_ref: string | null
+    oldest_site: string | null
+    breach_gt7: number
+    breach_gt30: number
+    breach_gt60: number
+    bottleneck_stage: string | null
+    bottleneck_count: number
+  }
+  pipeline: ImprestAgeingStage[]
+  items: ImprestAgeingItem[]
+  concentration_site: ConcentrationRow[]
+  concentration_category: ConcentrationRow[]
+  po_payments: PoPaymentRow[]
+  integrity: {
+    paid_not_closed: string[]
+    rejected_in_pipeline: string[]
+    zero_net_count: number
+  }
+}
+
 export interface DelegationSummary {
   task_summary: {
     total: number
