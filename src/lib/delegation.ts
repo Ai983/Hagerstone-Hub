@@ -101,6 +101,9 @@ export async function fetchSubmittedTasks(roleGroup: string | null): Promise<Del
     `)
     .in('status', ['under_review', 'submitted'])
     .order('submitted_at', { ascending: true })
+    // Latest submission first — a task can have several (e.g. resubmitted after a
+    // rejection); the reviewer must see the most recent one (and its attachments).
+    .order('created_at', { ascending: false, referencedTable: 'del_submissions' })
 
   if (roleGroup) q = q.eq('role_group', roleGroup)
 

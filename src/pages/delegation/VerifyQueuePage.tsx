@@ -78,7 +78,11 @@ function TaskRow({
 
   const assigneeName = nameMap.get(task.assigned_to) ?? 'Unknown'
   const pt           = task.del_points?.[0]
-  const submission   = task.del_submissions?.[0]
+  // A task may carry several submissions (e.g. resubmitted after a rejection).
+  // Always show the most recent one so the reviewer sees the latest attachments.
+  const submission   = [...(task.del_submissions ?? [])].sort(
+    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime(),
+  )[0]
   const agentMeta    = pt?.agent_meta as AgentMeta | null
   const proposed     = pt?.proposed_points ?? 0
 
