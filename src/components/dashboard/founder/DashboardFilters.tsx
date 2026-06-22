@@ -30,83 +30,85 @@ export function DashboardFilters({
     : null
 
   return (
-    <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-amber-100/80 px-4 py-3"
+    <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-amber-100/80 px-3 sm:px-4 py-2.5 sm:py-3"
       style={{ boxShadow: '0 2px 12px rgba(146,64,14,0.06)' }}>
       <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-2">
 
-        {/* Period pills */}
-        <div className="flex rounded-lg overflow-hidden border border-stone-200 shrink-0">
-          {PERIODS.map((p) => (
-            <button
-              key={p}
-              onClick={() => onChange({ period: p })}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                filters.period === p
-                  ? 'bg-amber-800 text-white'
-                  : 'bg-white text-stone-600 hover:bg-amber-50'
-              }`}
-            >
-              {PERIOD_LABELS[p]}
-            </button>
-          ))}
+        {/* Period pills — scroll horizontally on narrow screens so they never clip */}
+        <div className="-mx-1 px-1 max-w-full overflow-x-auto sm:mx-0 sm:px-0 sm:overflow-visible">
+          <div className="flex w-max rounded-lg overflow-hidden border border-stone-200">
+            {PERIODS.map((p) => (
+              <button
+                key={p}
+                onClick={() => onChange({ period: p })}
+                className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+                  filters.period === p
+                    ? 'bg-amber-800 text-white'
+                    : 'bg-white text-stone-600 hover:bg-amber-50'
+                }`}
+              >
+                {PERIOD_LABELS[p]}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Site filter */}
-        <Select
-          value={filters.site ?? '__all__'}
-          onValueChange={(v) => onChange({ site: v === '__all__' ? null : v })}
-        >
-          <SelectTrigger className="h-8 text-xs w-44 border-stone-200">
-            <SelectValue placeholder="All Sites" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Sites</SelectItem>
-            {sites.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Filters — flexible widths that fill the row on mobile, fixed on desktop */}
+        <div className="flex flex-1 flex-wrap items-center gap-2 min-w-0">
+          {/* Site filter */}
+          <Select
+            value={filters.site ?? '__all__'}
+            onValueChange={(v) => onChange({ site: v === '__all__' ? null : v })}
+          >
+            <SelectTrigger className="h-8 text-xs flex-1 min-w-[7.5rem] sm:flex-none sm:w-44 border-stone-200">
+              <SelectValue placeholder="All Sites" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All Sites</SelectItem>
+              {sites.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        {/* Person filter */}
-        <Select
-          value={filters.employeeId ?? '__all__'}
-          onValueChange={(v) => onChange({ employeeId: v === '__all__' ? null : v })}
-        >
-          <SelectTrigger className="h-8 text-xs w-44 border-stone-200">
-            <SelectValue placeholder="All People" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All People</SelectItem>
-            {employees.map((e) => (
-              <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {/* Person filter */}
+          <Select
+            value={filters.employeeId ?? '__all__'}
+            onValueChange={(v) => onChange({ employeeId: v === '__all__' ? null : v })}
+          >
+            <SelectTrigger className="h-8 text-xs flex-1 min-w-[7.5rem] sm:flex-none sm:w-44 border-stone-200">
+              <SelectValue placeholder="All People" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All People</SelectItem>
+              {employees.map((e) => (
+                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        {/* Team / role group filter */}
-        <Select
-          value={filters.roleGroup ?? '__all__'}
-          onValueChange={(v) => onChange({ roleGroup: v === '__all__' ? null : v })}
-        >
-          <SelectTrigger className="h-8 text-xs w-40 border-stone-200">
-            <SelectValue placeholder="All Teams" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Teams</SelectItem>
-            <SelectItem value="procurement">Procurement</SelectItem>
-            <SelectItem value="finance">Finance</SelectItem>
-            <SelectItem value="site_engineer">Site Engineers</SelectItem>
-            <SelectItem value="management">Management</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {/* Spacer */}
-        <div className="flex-1" />
+          {/* Team / role group filter */}
+          <Select
+            value={filters.roleGroup ?? '__all__'}
+            onValueChange={(v) => onChange({ roleGroup: v === '__all__' ? null : v })}
+          >
+            <SelectTrigger className="h-8 text-xs flex-1 min-w-[7.5rem] sm:flex-none sm:w-40 border-stone-200">
+              <SelectValue placeholder="All Teams" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All Teams</SelectItem>
+              <SelectItem value="procurement">Procurement</SelectItem>
+              <SelectItem value="finance">Finance</SelectItem>
+              <SelectItem value="site_engineer">Site Engineers</SelectItem>
+              <SelectItem value="management">Management</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Live indicator + refresh */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           {minsAgo !== null && (
-            <span className="text-xs text-stone-400">
+            <span className="text-xs text-stone-400 whitespace-nowrap">
               Updated {minsAgo < 1 ? 'just now' : `${minsAgo}m ago`}
             </span>
           )}
@@ -116,7 +118,7 @@ export function DashboardFilters({
           </span>
           <button
             onClick={onRefresh}
-            className="text-xs text-stone-400 hover:text-stone-600 px-2 py-1 rounded hover:bg-stone-100"
+            className="text-xs text-stone-400 hover:text-stone-600 px-2 py-1 rounded hover:bg-stone-100 whitespace-nowrap"
           >
             ↻ Refresh
           </button>

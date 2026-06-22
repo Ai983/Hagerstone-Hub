@@ -259,19 +259,19 @@ export function FounderDashboard() {
     <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at 20% 0%, #fef9ec 0%, #fffbf0 40%, #fef3c7 100%)' }}>
       {/* ── Header ── */}
       <header
-        className="bg-white/70 backdrop-blur-md border-b border-amber-100/80 px-6 py-3.5"
+        className="bg-white/70 backdrop-blur-md border-b border-amber-100/80 px-3 sm:px-6 py-3.5"
         style={{ boxShadow: '0 2px 24px rgba(146,64,14,0.08)' }}
       >
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} className="text-xs text-stone-500 hover:text-stone-700">
-              <ArrowLeft size={14} className="mr-1.5" /> Modules
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} className="text-xs text-stone-500 hover:text-stone-700 shrink-0 px-2">
+              <ArrowLeft size={14} className="sm:mr-1.5" /> <span className="hidden sm:inline">Modules</span>
             </Button>
-            <span className="text-stone-300">|</span>
-            <div className="font-semibold text-stone-800 text-sm">Founder Overview</div>
+            <span className="text-stone-300 shrink-0">|</span>
+            <div className="font-semibold text-stone-800 text-sm truncate">Founder Overview</div>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-xs text-stone-400 hover:text-stone-600">
-            <LogOut size={13} className="mr-1.5" /> Sign out
+          <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-xs text-stone-400 hover:text-stone-600 shrink-0 px-2">
+            <LogOut size={13} className="sm:mr-1.5" /> <span className="hidden sm:inline">Sign out</span>
           </Button>
         </div>
       </header>

@@ -40,17 +40,17 @@ interface CardProps {
 
 function KpiCard({ label, value, sub, highlight, loading, trend: trendNode, alert }: CardProps) {
   return (
-    <div className={`rounded-2xl p-4 border transition-all ${
+    <div className={`rounded-2xl p-3 sm:p-4 border transition-all min-w-0 ${
       alert
         ? 'bg-rose-50 border-rose-200'
         : highlight
         ? 'bg-amber-800 border-amber-800'
         : 'bg-white border-stone-100'
     }`} style={{ boxShadow: '0 4px 16px rgba(146,64,14,0.07)' }}>
-      <div className={`text-xs uppercase tracking-wide truncate ${
+      <div className={`text-[11px] sm:text-xs uppercase tracking-wide truncate ${
         alert ? 'text-rose-500' : highlight ? 'text-amber-100' : 'text-stone-400'
       }`}>{label}</div>
-      <div className={`text-xl font-semibold mt-1 ${
+      <div className={`text-lg sm:text-xl font-semibold mt-1 tabular-nums break-words ${
         alert ? 'text-rose-700' : highlight ? 'text-white' : 'text-stone-800'
       }`}>
         {loading ? <span className="animate-pulse text-stone-300">—</span> : value}
