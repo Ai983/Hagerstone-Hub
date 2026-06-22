@@ -45,7 +45,7 @@ export async function sendWhatsApp(
     const data = (body?.data ?? null) as Record<string, unknown> | string | null
     const ok = res.ok && body?.success === true
     const msgId =
-      (data && typeof data === 'object' ? (data.msg_id ?? data.id) : (typeof data === 'string' ? data : null)) as string | null ?? null
+      (data && typeof data === 'object' ? (data.msgId ?? data.msg_id ?? data.id) : (typeof data === 'string' ? data : null)) as string | null ?? null
     if (!ok) console.error('[maytapi] send failed', { status: res.status, body })
     return { ok, msgId, raw: body }
   } catch (e) {
