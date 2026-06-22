@@ -17,6 +17,8 @@ import { VerifyQueuePage } from './pages/delegation/VerifyQueuePage'
 import { MyPointsPage } from './pages/delegation/MyPointsPage'
 import { DelegationOrgPage } from './pages/delegation/DelegationOrgPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
+import { LeaderboardPage } from './pages/LeaderboardPage'
+import { EmployeePage } from './pages/EmployeePage'
 
 const queryClient = new QueryClient()
 
@@ -89,6 +91,17 @@ export default function App() {
             <HeadRoute>
               <ApprovalsPage />
             </HeadRoute>
+          } />
+
+          <Route path="/leaderboard" element={
+            <ProtectedRoute>
+              <LeaderboardPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/employee/:id" element={
+            <ProtectedRoute>
+              <EmployeePage />
+            </ProtectedRoute>
           } />
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
