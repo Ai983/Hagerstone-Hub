@@ -51,6 +51,18 @@ export async function fetchMyTasks(authUserId: string): Promise<DelTask[]> {
 
 // ── Team members (for head/founder assignment) ────────────────────────────────
 
+// Org/approval accounts that are the primary of a dual identity (a personal account
+// points to them via points_alias_of). Hidden from assignment pickers so each person
+// appears ONCE and delegation routes to their personal account; points still merge on
+// the leaderboard (get_work_scores folds the alias into the org card).
+async function aliasedPrimaryIds(): Promise<Set<string>> {
+  const { data } = await supabase
+    .from('employees')
+    .select('points_alias_of')
+    .not('points_alias_of', 'is', null)
+  return new Set((data ?? []).map((r: { points_alias_of: string }) => r.points_alias_of))
+}
+
 export async function fetchTeamMembers(roleGroup: string): Promise<Employee[]> {
   const { data, error } = await supabase
     .from('employees')
@@ -59,7 +71,8 @@ export async function fetchTeamMembers(roleGroup: string): Promise<Employee[]> {
     .eq('is_active', true)
     .order('name')
   if (error) throw error
-  return (data ?? []) as Employee[]
+  const hidden = await aliasedPrimaryIds()
+  return (data ?? []).filter((e) => !(e.auth_user_id && hidden.has(e.auth_user_id))) as Employee[]
 }
 
 export async function fetchAllActiveEmployees(): Promise<Employee[]> {
@@ -69,7 +82,8 @@ export async function fetchAllActiveEmployees(): Promise<Employee[]> {
     .eq('is_active', true)
     .order('name')
   if (error) throw error
-  return (data ?? []) as Employee[]
+  const hidden = await aliasedPrimaryIds()
+  return (data ?? []).filter((e) => !(e.auth_user_id && hidden.has(e.auth_user_id))) as Employee[]
 }
 
 // ── Projects (for the task-form project picker; live from public.projects) ─────
