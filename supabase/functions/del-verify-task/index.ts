@@ -7,9 +7,7 @@ const corsHeaders = {
 }
 
 // Maytapi (reject -> resubmit WhatsApp). Same path as del-notify-assign.
-const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
-const MAYTAPI_PHONE_ID = '46821'
-const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
+import { sendWhatsApp } from '../_shared/maytapi.ts'
 
 // Tier point ceilings — the max a verifier may award (mirrors delegation-points)
 const TIER: Record<string, number> = { S: 5, M: 10, L: 20, XL: 40 }
@@ -188,25 +186,15 @@ serve(async (req) => {
       `📝 *Reason:* ${reject_reason!.trim()}\n\n` +
       `Kripya theek karke FIRSE submit karein 👇\n${deepLink}\n\n` +
       `— Admin Hagerstone`
-    const digits = assignee.phone.replace(/\D/g, '')
-    const toNumber = digits.startsWith('91') ? digits : `91${digits}`
-    try {
-      await fetch(
-        `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
-          body: JSON.stringify({ to_number: toNumber, type: 'text', message }),
-        },
-      )
-    } catch (_e) { /* best-effort */ }
+    const r = await sendWhatsApp({ phone: assignee.phone, message })
 
     await supabase.from('del_notifications').insert({
       task_id,
       recipient_uid: task.assigned_to,
       channel: 'whatsapp',
-      status: 'sent',
+      status: r.ok ? 'sent' : 'failed',
       attempts: 1,
+      provider_msg_id: r.msgId,
       payload: { message, kind: 'rejected_resubmit', by: caller.name },
     })
   }

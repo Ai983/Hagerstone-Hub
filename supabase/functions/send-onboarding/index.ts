@@ -1,10 +1,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { generateTempPassword } from '../_shared/password.ts'
+import { sendWhatsApp } from '../_shared/maytapi.ts'
 
-const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
-const MAYTAPI_PHONE_ID = '46821'
-const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
 // Hub login URL sent in the onboarding WhatsApp. Override via HUB_PUBLIC_URL
 // once a custom domain is live; defaults to the current Vercel URL.
 const HUB_URL = (Deno.env.get('HUB_PUBLIC_URL') ?? 'https://hagerstone-hub.vercel.app') + '/login'
@@ -72,18 +70,8 @@ serve(async (req) => {
   if (channels.includes('whatsapp') && emp.phone) {
     const message = `Hi ${emp.name}, welcome to Hagerstone Hub! 🎉\n\nYour account is ready.\n\nLogin: ${emp.email}\nPassword: ${tempPassword}\n\nOpen Hub: ${HUB_URL}\n\n⚠️ IMPORTANT: Please open the above link in Chrome or Safari browser (not inside WhatsApp).\n\nSign in with the email and password above.\n\n— Hagerstone IT`
 
-    const phone = emp.phone.replace(/\D/g, '')
-    const toNumber = phone.startsWith('91') ? phone : `91${phone}`
-
-    const waRes = await fetch(
-      `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
-        body: JSON.stringify({ to_number: toNumber, type: 'text', message }),
-      }
-    )
-    const waStatus = waRes.ok ? 'sent' : 'failed'
+    const r = await sendWhatsApp({ phone: emp.phone, message })
+    const waStatus = r.ok ? 'sent' : 'failed'
     results.whatsapp = waStatus
 
     await supabase.from('onboarding_log').insert({

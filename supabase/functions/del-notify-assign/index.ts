@@ -7,17 +7,12 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { sendWhatsApp } from '../_shared/maytapi.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-
-// Maytapi WhatsApp — same product/phone/key as the admin Send Invite / Resend
-// onboarding flow (send-onboarding). MAYTAPI_API_KEY is a Hub edge-function secret.
-const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
-const MAYTAPI_PHONE_ID = '46821'
-const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -136,26 +131,13 @@ serve(async (req) => {
   // No phone → the in_app row above is the notification (status stays 'pending').
   let waStatus: 'pending' | 'sent' | 'failed' = 'pending'
   if (assignee?.phone) {
-    const digits = assignee.phone.replace(/\D/g, '')
-    const toNumber = digits.startsWith('91') ? digits : `91${digits}`
-    try {
-      const waRes = await fetch(
-        `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
-          body: JSON.stringify({ to_number: toNumber, type: 'text', message }),
-        },
-      )
-      waStatus = waRes.ok ? 'sent' : 'failed'
-    } catch (_e) {
-      waStatus = 'failed'
-    }
+    const r = await sendWhatsApp({ phone: assignee.phone, message })
+    waStatus = r.ok ? 'sent' : 'failed'
 
     if (notif?.id) {
       await supabase
         .from('del_notifications')
-        .update({ status: waStatus, attempts: 1 })
+        .update({ status: waStatus, attempts: 1, provider_msg_id: r.msgId })
         .eq('id', notif.id)
     }
   }

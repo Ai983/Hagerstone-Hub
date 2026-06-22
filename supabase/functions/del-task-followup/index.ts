@@ -13,9 +13,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const MAYTAPI_PRODUCT_ID = 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
-const MAYTAPI_PHONE_ID = '46821'
-const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY')!
+import { sendWhatsApp } from '../_shared/maytapi.ts'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -117,22 +115,8 @@ serve(async (req) => {
       )
 
   // 5. Send via Maytapi
-  const digits = assignee.phone.replace(/\D/g, '')
-  const toNumber = digits.startsWith('91') ? digits : `91${digits}`
-  let waStatus: 'sent' | 'failed' = 'failed'
-  try {
-    const waRes = await fetch(
-      `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
-        body: JSON.stringify({ to_number: toNumber, type: 'text', message }),
-      },
-    )
-    waStatus = waRes.ok ? 'sent' : 'failed'
-  } catch (_e) {
-    waStatus = 'failed'
-  }
+  const r = await sendWhatsApp({ phone: assignee.phone, message })
+  const waStatus: 'sent' | 'failed' = r.ok ? 'sent' : 'failed'
 
   // 6. Record the follow-up
   await supabase.from('del_notifications').insert({
@@ -141,6 +125,7 @@ serve(async (req) => {
     channel: 'whatsapp',
     status: waStatus,
     attempts: 1,
+    provider_msg_id: r.msgId,
     payload: { message, kind: pastDeadline ? 'followup_overdue' : 'followup', by: caller.name },
   })
 
