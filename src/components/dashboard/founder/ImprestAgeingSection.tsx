@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Download, AlertTriangle, Clock, ChevronUp, ChevronDown, Info, FileText, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
@@ -162,6 +162,8 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
   const [bandF, setBandF] = useState<string>('all')
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'age', dir: -1 })
+  const [showAll, setShowAll] = useState(false)
+  const PAGE = 10
 
   const stageLabel = useMemo(() => {
     const m = new Map<string, string>()
@@ -185,6 +187,10 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
       return (av - bv) * sort.dir
     })
   }, [items, stageF, bandF, q, sort])
+
+  // Collapse back to the first page whenever the filter/search changes.
+  useEffect(() => { setShowAll(false) }, [stageF, bandF, q])
+  const visible = showAll ? filtered : filtered.slice(0, PAGE)
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: (s.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: -1 }))
@@ -237,7 +243,7 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
           <input value={q} onChange={(e) => setQ(e.target.value)} type="search" placeholder="Search ref, site or requester…"
             className="text-sm px-3 py-2 border border-stone-200 rounded-lg w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-amber-400" />
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[12px] text-stone-400 tabular-nums">{filtered.length} of {items.length}</span>
+            <span className="text-[12px] text-stone-400 tabular-nums">Showing {visible.length} of {filtered.length}</span>
             <button onClick={handleExport} className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-700 border border-stone-200 rounded-lg px-2.5 py-1.5 hover:bg-stone-50">
               <Download size={12} /> CSV
             </button>
@@ -262,7 +268,7 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
             </tr>
           </thead>
           <tbody>
-            {filtered.map((it) => (
+            {visible.map((it) => (
               <tr key={it.ref} className="border-t border-stone-100 hover:bg-amber-50/40">
                 <td className="px-3 py-2 font-mono text-[12px] whitespace-nowrap text-stone-700">
                   {it.ref}
@@ -287,7 +293,7 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-2">
-        {filtered.map((it) => (
+        {visible.map((it) => (
           <Card key={it.ref} className="p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -309,6 +315,18 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
         ))}
         {filtered.length === 0 && <div className="py-8 text-center text-stone-400 text-sm">No items match these filters 📭</div>}
       </div>
+
+      {/* Show more / less toggle — keep the list compact by default */}
+      {filtered.length > PAGE && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full flex items-center justify-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl py-2.5 transition-colors"
+        >
+          {showAll
+            ? <>Show less <ChevronUp size={14} /></>
+            : <>Show all {filtered.length} items <ChevronDown size={14} /></>}
+        </button>
+      )}
     </div>
   )
 }
