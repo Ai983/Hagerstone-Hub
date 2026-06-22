@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Download, AlertTriangle, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react'
+import { Download, AlertTriangle, Clock, ChevronUp, ChevronDown, Info, FileText, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type {
   ImprestAgeing, ImprestAgeingItem, AgeBand, PoPaymentRow, ConcentrationRow,
 } from './types'
 import { inr, num, exportToCSV } from './exportUtils'
+import { downloadImprestAgeingPdf } from './exportImprestAgeingPdf'
 
 interface Props {
   data: ImprestAgeing | null
@@ -416,6 +418,27 @@ function Integrity({ g }: { g: ImprestAgeing['integrity'] }) {
   )
 }
 
+// ── Download (full PDF report) ─────────────────────────────────────────────────
+function DownloadButton({ data }: { data: ImprestAgeing }) {
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    try {
+      setBusy(true)
+      await downloadImprestAgeingPdf(data)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'PDF export failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button onClick={run} disabled={busy}
+      className="flex items-center gap-1 text-xs text-stone-500 hover:text-amber-800 border border-stone-200 hover:border-amber-300 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50">
+      {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />} Download PDF
+    </button>
+  )
+}
+
 // ── Section ────────────────────────────────────────────────────────────────────
 export function ImprestAgeingSection({ data, loading, site }: Props) {
   if (loading) {
@@ -446,8 +469,9 @@ export function ImprestAgeingSection({ data, loading, site }: Props) {
         <h2 className="text-sm font-semibold text-stone-700 flex items-center gap-1.5">
           <Clock size={15} className="text-amber-700" /> Imprest &amp; Finance Ageing
         </h2>
-        <span className="text-[11px] text-stone-400">every in-flight imprest &amp; PO not yet paid · live</span>
+        <span className="text-[11px] text-stone-400 hidden sm:inline">every in-flight imprest &amp; PO not yet paid · live</span>
         <span className="ml-auto text-[11px] text-stone-400">as of {asOf}</span>
+        <DownloadButton data={data} />
       </div>
 
       <Kpis k={data.kpis} />
