@@ -219,7 +219,7 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
           {stages.filter((s) => s.count > 0).map((s) => (
             <button key={s.stage_key} onClick={() => setStageF(s.stage_key)}
               className={`text-xs px-2.5 py-1 rounded-full border ${stageF === s.stage_key ? 'bg-stone-800 text-white border-stone-800' : 'bg-white text-stone-600 border-stone-200 hover:border-stone-400'}`}>
-              {s.label.replace(/^Stage \d+ · |^Director · |^Finance-approved · |^Founder.* · /,'')} ({s.count})
+              {s.label.split(' · ')[0]} ({s.count})
             </button>
           ))}
         </div>

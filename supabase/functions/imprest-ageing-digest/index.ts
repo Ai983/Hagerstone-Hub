@@ -21,14 +21,13 @@ const lakh = (n: number) =>
 
 const STAGE_SHORT: Record<string, string> = {
   s1_pending: 'Stage 1 review', s2_pending: 'Stage 2 review', director_pending: 'Director approval',
-  s3_pending: 'Finance review', s3_awaiting_founder: 'Awaiting founder gate',
-  founder_review_pending: 'Founder gate', founder_approved: 'Founder-approved payout',
-  s3_awaiting_payout: 'Finance-approved payout',
+  s3_pending: 'Finance review', founder_review_pending: 'Founder gate',
+  founder_approved: 'Founder-approved payout', s3_legacy: 'Legacy (never sent to founder)',
 }
 const OWNER_SHORT: Record<string, string> = {
-  s1_pending: 'Avisha', s2_pending: 'HO/Bangalore', director_pending: 'Bhaskar Sir',
-  s3_pending: 'Finance', s3_awaiting_founder: 'Finance', founder_review_pending: 'Dhruv Sir',
-  founder_approved: 'Finance', s3_awaiting_payout: 'Finance',
+  s1_pending: 'Avisha', s2_pending: 'Ritu', director_pending: 'Bhaskar Sir',
+  s3_pending: 'Finance', founder_review_pending: 'Dhruv Sir',
+  founder_approved: 'Finance', s3_legacy: 'Finance',
 }
 
 function buildGist(d: any, url: string): string {
