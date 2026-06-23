@@ -12,7 +12,8 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SHARED_SECRET = Deno.env.get('N8N_DIGEST_SECRET') ?? 'hagerstone-n8n-secret-2026'
-const BUCKET = 'founder-reports'
+// Unguessable key for the public, no-login report view link (?view=1&k=...).
+const REPORT_KEY = Deno.env.get('REPORT_KEY') ?? 'a7f3c9e1b5d24680f9c3a1e7'
 
 const inr = (n: number) => 'Rs.' + Number(n ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const lakh = (n: number) =>
@@ -265,13 +266,6 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   const url = new URL(req.url)
-  const provided = req.headers.get('x-n8n-secret') ?? url.searchParams.get('secret')
-  if (provided !== SHARED_SECRET) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
-
   const supabase = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
   let site: string | null = url.searchParams.get('site')
@@ -280,28 +274,30 @@ Deno.serve(async (req) => {
   }
   if (typeof site === 'string' && site.trim() === '') site = null
 
+  // ── VIEW MODE: render the live, no-login HTML report (gated by an unguessable key) ──
+  if (url.searchParams.get('view')) {
+    if (url.searchParams.get('k') !== REPORT_KEY) {
+      return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } })
+    }
+    const { data, error } = await supabase.rpc('founder_imprest_ageing', { p_site: site })
+    if (error) return new Response('Error: ' + error.message, { status: 500, headers: { 'Content-Type': 'text/plain' } })
+    return new Response(buildHtml(data), { headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' } })
+  }
+
+  // ── DIGEST MODE: short JSON gist for the n8n WhatsApp workflow ──
+  const provided = req.headers.get('x-n8n-secret') ?? url.searchParams.get('secret')
+  if (provided !== SHARED_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
   const { data, error } = await supabase.rpc('founder_imprest_ageing', { p_site: site })
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
-
-  // Build + upload the HTML report (token in the path so the public URL isn't guessable)
-  const html = buildHtml(data)
-  const day = new Date().toISOString().slice(0, 10)
-  const token = crypto.randomUUID().slice(0, 8)
-  const path = `ageing/${day}-${token}.html`
-  const { error: upErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, new Blob([html], { type: 'text/html; charset=utf-8' }), { upsert: true, contentType: 'text/html; charset=utf-8' })
-  if (upErr) {
-    return new Response(JSON.stringify({ error: `upload failed: ${upErr.message}` }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
-  const reportUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`
-
+  const reportUrl = `${SUPABASE_URL}/functions/v1/imprest-ageing-digest?view=1&k=${REPORT_KEY}`
   return new Response(JSON.stringify({
     message: buildGist(data, reportUrl),
     report_url: reportUrl,
