@@ -26,7 +26,7 @@ const STAGE_SHORT: Record<string, string> = {
 }
 const OWNER_SHORT: Record<string, string> = {
   s1_pending: 'Avisha', s2_pending: 'Ritu', director_pending: 'Bhaskar Sir',
-  s3_pending: 'Finance', founder_review_pending: 'Dhruv Sir',
+  s3_pending: 'Finance', founder_review_pending: 'Ritu',
   founder_approved: 'Finance', s3_legacy: 'Finance',
 }
 
@@ -34,20 +34,19 @@ function buildGist(d: any, url: string): string {
   const k = d.kpis
   const pipeline = d.pipeline ?? []
 
-  // Where it's stuck: biggest pile-ups, with who owns each.
+  // Where it's stuck: biggest live pile-ups (legacy/anomaly stage excluded from
+  // the daily glance), with who owns each.
   const top = [...pipeline]
-    .filter((p: any) => p.count > 0)
+    .filter((p: any) => p.count > 0 && p.stage_key !== 's3_legacy')
     .sort((a: any, b: any) => b.count - a.count)
     .slice(0, 3)
     .map((p: any) => `  - ${STAGE_SHORT[p.stage_key] ?? p.label} (${OWNER_SHORT[p.stage_key] ?? p.owner}): *${p.count}* - ${lakh(p.value)}`)
     .join('\n')
 
-  // What actually needs action - split by who must move it.
-  const founderGate = pipeline.find((p: any) => p.stage_key === 'founder_review_pending')?.count ?? 0
+  // Money to release - what Finance still needs to pay out.
   const poLive = (d.po_payments ?? []).filter((p: any) => !p.is_test)
   const poOut = poLive.reduce((a: number, p: any) => a + Number(p.outstanding ?? 0), 0)
   const actions = [
-    founderGate ? `  - *${founderGate}* awaiting YOUR approval (founder gate)` : '',
     `  - *${lakh(k.approved_awaiting_payout)}* approved, awaiting Finance payout`,
     poLive.length ? `  - Vendor POs: *${lakh(poOut)}* unpaid (${poLive.length})` : '',
   ].filter(Boolean).join('\n')
@@ -63,7 +62,7 @@ function buildGist(d: any, url: string): string {
     `*Where it's stuck (stage / owner / count):*`,
     top || '  - None',
     ``,
-    `*Needs action:*`,
+    `*Money to release:*`,
     actions,
     ``,
     `*Tap for the full report (no login):*`,
