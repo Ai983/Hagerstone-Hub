@@ -48,6 +48,22 @@ function AgeChip({ days }: { days: number }) {
   )
 }
 
+// Colour key — explains every age-coloured pill, bar and matrix cell in the report.
+function AgeLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-white rounded-xl border border-stone-100 px-3 py-2 text-[11px]"
+      style={{ boxShadow: '0 2px 10px rgba(146,64,14,0.05)' }}>
+      <span className="font-semibold text-stone-500 uppercase tracking-wide">Ageing key — how long an item has waited:</span>
+      {BAND_ORDER.map((b) => (
+        <span key={b} className="inline-flex items-center gap-1.5 text-stone-600">
+          <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: BAND[b].bg }} />
+          {BAND[b].label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── KPI strip ────────────────────────────────────────────────────────────────
 function Kpis({ k }: { k: ImprestAgeing['kpis'] }) {
   const cards = [
@@ -497,8 +513,14 @@ export function ImprestAgeingSection({ data, loading, site }: Props) {
 
       <Kpis k={data.kpis} />
 
+      <AgeLegend />
+
       <div>
-        <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-widest mb-3">Where it's stuck — imprest pipeline</h3>
+        <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-widest mb-1">Where it's stuck — imprest pipeline</h3>
+        <p className="text-[11px] text-stone-400 mb-3">
+          In each card the <b className="text-stone-500">dark bar</b> = number of items vs the busiest stage;
+          the <b className="text-stone-500">coloured bar</b> = age mix of those items (colours per the key above).
+        </p>
         <Pipeline stages={data.pipeline} />
       </div>
 
