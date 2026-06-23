@@ -113,3 +113,36 @@ export const fmtINR = (n: number) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 export const initials = (name: string) =>
   name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')
+
+// ── Live point values (single source of truth = public.points_config) ────────
+// get_points_config() returns a flat { key: number } object. UI hints (Verify,
+// Mera Din) read this so the numbers shown always match what the server awards.
+export type PointsConfig = Record<string, number>
+
+async function fetchPointsConfig(): Promise<PointsConfig> {
+  const { data, error } = await supabase.rpc('get_points_config')
+  if (error) throw error
+  return (data ?? {}) as PointsConfig
+}
+
+export function usePointsConfig() {
+  return useQuery({
+    queryKey: ['points_config'],
+    queryFn: fetchPointsConfig,
+    staleTime: 300_000, // values change rarely; cache 5 min
+  })
+}
+
+// Seed values used while the config loads or if the read fails — kept in sync
+// with the points_config 'delegation' rows.
+const TIER_SEED: Record<string, number> = { S: 5, M: 10, L: 20, XL: 40 }
+
+/** Build the {S,M,L,XL} tier-points map from live config, falling back to seeds. */
+export function tierPointsFrom(cfg: PointsConfig | undefined): Record<string, number> {
+  return {
+    S:  cfg?.tier_S  ?? TIER_SEED.S,
+    M:  cfg?.tier_M  ?? TIER_SEED.M,
+    L:  cfg?.tier_L  ?? TIER_SEED.L,
+    XL: cfg?.tier_XL ?? TIER_SEED.XL,
+  }
+}

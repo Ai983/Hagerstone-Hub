@@ -30,7 +30,7 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { SearchableSelect, type SearchOption } from '../../components/ui/SearchableSelect'
 import { DELEGATION_ROLES, ROLE_SHORT_LABELS } from '../../config/roles'
-import { DELEGATION_POINTS } from '../../config/delegation-points'
+import { usePointsConfig, tierPointsFrom } from '../../lib/work-scores'
 
 // All roles can access delegation — the task type dropdown controls what tasks are available
 const LAUNCH_ROLES = DELEGATION_ROLES
@@ -476,8 +476,6 @@ interface CreateFormProps {
   onCreated: () => void
 }
 
-// Points per tier for display — mirrors the canonical delegation point values
-const TIER_PTS: Record<string, number> = DELEGATION_POINTS.tier
 const TIER_COLOR: Record<string, string> = {
   S:  'bg-sky-100 text-sky-700 border-sky-200',
   M:  'bg-violet-100 text-violet-700 border-violet-200',
@@ -490,6 +488,10 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
   const isHead    = employee.is_head
   const isGlobal  = employee.role === 'founder' || employee.role === 'admin' || employee.del_super === true
   const canAssign = isHead || isGlobal
+
+  // Tier point hints — live from points_config (single source of truth).
+  const { data: pointsCfg } = usePointsConfig()
+  const TIER_PTS = tierPointsFrom(pointsCfg)
 
   const firstAssignableUid = (() => {
     if (!canAssign) return employee.auth_user_id ?? ''

@@ -15,7 +15,7 @@ import {
   fetchAllTaskTypes,
   verifyTask,
 } from '../../lib/delegation'
-import { DELEGATION_POINTS } from '../../config/delegation-points'
+import { usePointsConfig, tierPointsFrom } from '../../lib/work-scores'
 import type { DelTask, AgentMeta } from '../../types/delegation'
 import type { Employee } from '../../types'
 import { PointEntryCard } from '../../components/delegation/PointEntryCard'
@@ -356,9 +356,11 @@ export function VerifyQueuePage() {
   // Max awardable points per task (decided at assignment): custom Other points,
   // else the task type's tier ceiling. Mirrors the server-side clamp.
   const { data: taskTypes = [] } = useQuery({ queryKey: ['del_task_types', 'all'], queryFn: fetchAllTaskTypes })
+  const { data: pointsCfg } = usePointsConfig()
+  const tierPts = tierPointsFrom(pointsCfg)
   const tierMap = new Map<string, number>()
   ;(taskTypes as { code: string; effort_tier: string }[]).forEach((t) =>
-    tierMap.set(t.code, (DELEGATION_POINTS.tier as Record<string, number>)[t.effort_tier] ?? 0))
+    tierMap.set(t.code, tierPts[t.effort_tier] ?? 0))
   const maxFor = (t: DelTask): number | undefined =>
     t.custom_points ?? (t.type_code ? tierMap.get(t.type_code) : undefined)
 
