@@ -19,14 +19,40 @@ const inr = (n: number) => 'Rs.' + Number(n ?? 0).toLocaleString('en-IN', { maxi
 const lakh = (n: number) =>
   Math.abs(Number(n)) >= 100000 ? `Rs.${(Number(n) / 100000).toFixed(2)} L` : inr(Number(n))
 
+const STAGE_SHORT: Record<string, string> = {
+  s1_pending: 'Stage 1 review', s2_pending: 'Stage 2 review', director_pending: 'Director approval',
+  s3_pending: 'Finance review', s3_awaiting_founder: 'Awaiting founder gate',
+  founder_review_pending: 'Founder gate', founder_approved: 'Founder-approved payout',
+  s3_awaiting_payout: 'Finance-approved payout',
+}
+const OWNER_SHORT: Record<string, string> = {
+  s1_pending: 'Avisha', s2_pending: 'HO/Bangalore', director_pending: 'Bhaskar Sir',
+  s3_pending: 'Finance', s3_awaiting_founder: 'Finance', founder_review_pending: 'Dhruv Sir',
+  founder_approved: 'Finance', s3_awaiting_payout: 'Finance',
+}
+
 function buildGist(d: any, url: string): string {
   const k = d.kpis
-  const attention = [...(d.items ?? [])]
-    .sort((a: any, b: any) => (b.days_at_stage ?? 0) - (a.days_at_stage ?? 0))
+  const pipeline = d.pipeline ?? []
+
+  // Where it's stuck: biggest pile-ups, with who owns each.
+  const top = [...pipeline]
+    .filter((p: any) => p.count > 0)
+    .sort((a: any, b: any) => b.count - a.count)
     .slice(0, 3)
-    .map((it: any, i: number) =>
-      `${i + 1}. ${it.ref}  -  ${it.requester} - ${it.owner}  -  *${it.days_at_stage}d*`)
+    .map((p: any) => `  - ${STAGE_SHORT[p.stage_key] ?? p.label} (${OWNER_SHORT[p.stage_key] ?? p.owner}): *${p.count}* - ${lakh(p.value)}`)
     .join('\n')
+
+  // What actually needs action - split by who must move it.
+  const founderGate = pipeline.find((p: any) => p.stage_key === 'founder_review_pending')?.count ?? 0
+  const poLive = (d.po_payments ?? []).filter((p: any) => !p.is_test)
+  const poOut = poLive.reduce((a: number, p: any) => a + Number(p.outstanding ?? 0), 0)
+  const actions = [
+    founderGate ? `  - *${founderGate}* awaiting YOUR approval (founder gate)` : '',
+    `  - *${lakh(k.approved_awaiting_payout)}* approved, awaiting Finance payout`,
+    poLive.length ? `  - Vendor POs: *${lakh(poOut)}* unpaid (${poLive.length})` : '',
+  ].filter(Boolean).join('\n')
+
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
   return [
     `*HAGERSTONE - DAILY AGEING REPORT*`,
@@ -35,10 +61,13 @@ function buildGist(d: any, url: string): string {
     `*${k.stuck_count}* imprests stuck  -  *${lakh(k.gross_value)}* tied up`,
     `Oldest *${k.oldest_days}d*  -  Breach: *${k.breach_gt7}* >7d / *${k.breach_gt30}* >30d / *${k.breach_gt60}* >60d`,
     ``,
-    `*Needs attention (longest at one stage):*`,
-    attention || '  - None',
+    `*Where it's stuck (stage / owner / count):*`,
+    top || '  - None',
     ``,
-    `*Tap for the full report (no login needed):*`,
+    `*Needs action:*`,
+    actions,
+    ``,
+    `*Tap for the full report (no login):*`,
     url,
     ``,
     `- Hagerstone Finance System`,
