@@ -1,10 +1,55 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { TIER, TIER_HALF, GRACE_DAYS } from '../_shared/delegation-points.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// ── Scoring config (single source of truth = public.points_config) ──────────
+// Award values live in points_config so admin edits take effect instantly with
+// no redeploy. These inline constants are a defensive fallback ONLY — used if
+// the config read fails — and mirror the seeded delegation values.
+const FALLBACK_TIER: Record<string, number> = { S: 5, M: 10, L: 20, XL: 40 }
+const FALLBACK_TIER_HALF: Record<string, number> = { S: 2, M: 5, L: 10, XL: 20 }
+const FALLBACK_GRACE_DAYS = 1
+
+type ScoringConfig = {
+  TIER: Record<string, number>
+  TIER_HALF: Record<string, number>
+  GRACE_DAYS: number
+}
+
+// deno-lint-ignore no-explicit-any
+async function loadScoringConfig(supabase: any): Promise<ScoringConfig> {
+  try {
+    const { data } = await supabase
+      .from('points_config')
+      .select('key, value')
+      .eq('category', 'delegation')
+
+    if (!data || data.length === 0) {
+      return { TIER: FALLBACK_TIER, TIER_HALF: FALLBACK_TIER_HALF, GRACE_DAYS: FALLBACK_GRACE_DAYS }
+    }
+
+    const map = new Map<string, number>()
+    for (const row of data as { key: string; value: string }[]) {
+      const n = Number(row.value)
+      if (!Number.isNaN(n)) map.set(row.key, n)
+    }
+
+    const tierFor = (t: string) => map.get(`tier_${t}`) ?? FALLBACK_TIER[t] ?? 0
+    const halfFor = (t: string) => map.get(`tier_half_${t}`) ?? FALLBACK_TIER_HALF[t] ?? 0
+
+    return {
+      TIER: { S: tierFor('S'), M: tierFor('M'), L: tierFor('L'), XL: tierFor('XL') },
+      TIER_HALF: { S: halfFor('S'), M: halfFor('M'), L: halfFor('L'), XL: halfFor('XL') },
+      GRACE_DAYS: map.get('grace_days') ?? FALLBACK_GRACE_DAYS,
+    }
+  } catch {
+    // Submission must never break because of a config read — fall back to seeds.
+    return { TIER: FALLBACK_TIER, TIER_HALF: FALLBACK_TIER_HALF, GRACE_DAYS: FALLBACK_GRACE_DAYS }
+  }
 }
 
 function json(body: unknown, status = 200) {
@@ -34,6 +79,9 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
+
+  // Live point values from points_config (single source of truth).
+  const { TIER, TIER_HALF, GRACE_DAYS } = await loadScoringConfig(supabase)
 
   // ── 1. Verify caller identity ──────────────────────────────────────────────
   const authHeader = req.headers.get('Authorization')
