@@ -50,3 +50,16 @@ supabase/.temp/
 
 # MCP server config — contains secret tokens (Railway API token, etc.)
 .mcp.json
+
+# Local-only build/spec docs + generated reports — not part of the app, keep
+# local so the working tree stays clean. (Some specs in "MARKDOWN FILES/" are
+# already tracked; these are the untracked WIP/build docs we keep out of git.)
+GIE-implementation-runbook.md
+SPEC-HUB-GAMIFICATION.md
+group-intelligence-engine-build-manual.html
+MARKDOWN FILES/BUILD-RUNBOOK-DELEGATION.md
+MARKDOWN FILES/FOUNDER_DASHBOARD.md
+MARKDOWN FILES/SPEC-FOUNDER-APPROVAL-GATE.md
+MARKDOWN FILES/SPEC-HUB-DELEGATION-SYSTEM.md
+MARKDOWN FILES/SPEC-HUB-POINTS-AGGREGATION-AND-FOUNDER-VIEW.md
+MARKDOWN FILES/SPEC-HUB-POINTS-AWARD-AND-NOTIFICATIONS.md
