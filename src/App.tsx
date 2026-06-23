@@ -20,6 +20,7 @@ import { ApprovalsPage } from './pages/ApprovalsPage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
 import { EmployeePage } from './pages/EmployeePage'
 import { LeadershipRoute } from './components/LeadershipRoute'
+import { PublicAgeingReport } from './pages/PublicAgeingReport'
 
 const queryClient = new QueryClient()
 
@@ -30,6 +31,9 @@ export default function App() {
         <Toaster position="top-right" richColors />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          {/* Public, no-login ageing report (linked from the daily founder WhatsApp) */}
+          <Route path="/r/ageing" element={<PublicAgeingReport />} />
 
           <Route path="/dashboard" element={
             <ProtectedRoute>
