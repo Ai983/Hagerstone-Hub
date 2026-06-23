@@ -45,6 +45,20 @@ function buildMessage(d: any): string {
   const poLive = (d.po_payments ?? []).filter((p: any) => !p.is_test)
   const poOut = poLive.reduce((a: number, p: any) => a + Number(p.outstanding ?? 0), 0)
 
+  // Needs attention: the items sitting longest with one person right now.
+  const STAGE_SHORT: Record<string, string> = {
+    s1_pending: 'Stage 1', s2_pending: 'Stage 2', director_pending: 'Director',
+    s3_pending: 'Finance review', s3_awaiting_founder: 'Awaiting founder gate',
+    founder_review_pending: 'Founder gate', founder_approved: 'Awaiting payout',
+    s3_awaiting_payout: 'Awaiting payout',
+  }
+  const attention = [...(d.items ?? [])]
+    .sort((a: any, b: any) => (b.days_at_stage ?? 0) - (a.days_at_stage ?? 0))
+    .slice(0, 5)
+    .map((it: any, i: number) =>
+      `${i + 1}. ${it.ref} · ${it.site ?? '—'}\n     ${STAGE_SHORT[it.stage_key] ?? it.stage_key} · with ${it.owner ?? '—'} · *${it.days_at_stage ?? 0}d* (${it.age_days}d total)`)
+    .join('\n')
+
   const oldest = [k.oldest_ref, k.oldest_site].filter(Boolean).join(' · ')
 
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -58,8 +72,11 @@ function buildMessage(d: any): string {
     `Oldest: *${k.oldest_days}d*${oldest ? ` · ${oldest}` : ''}`,
     `Breach: *${k.breach_gt7}* >7d · *${k.breach_gt30}* >30d · *${k.breach_gt60}* >60d`,
     ``,
-    `*Where it's stuck:*`,
+    `*Where it's stuck (stage · person · count):*`,
     pipe || '  • None',
+    ``,
+    `🔴 *Needs attention — longest at one stage:*`,
+    attention || '  • None',
     ``,
     `*PO payments:* ${poLive.length} unsettled · *${lakh(poOut)}* outstanding`,
     k.flagged_count ? `\n⚠️ ${k.flagged_count} item(s) flagged for review.` : ``,

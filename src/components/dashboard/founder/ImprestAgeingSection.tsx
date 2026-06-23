@@ -156,7 +156,7 @@ function Matrix({ stages }: { stages: ImprestAgeing['pipeline'] }) {
 }
 
 // ── Stuck items: filter + search + sortable table (mobile cards) ───────────────
-type SortKey = 'age' | 'amt'
+type SortKey = 'age' | 'amt' | 'stage'
 function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stages: ImprestAgeing['pipeline']; site: string | null }) {
   const [stageF, setStageF] = useState<string>('all')
   const [bandF, setBandF] = useState<string>('all')
@@ -181,11 +181,9 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
         (it.site ?? '').toLowerCase().includes(needle) ||
         it.requester.toLowerCase().includes(needle)),
     )
-    return [...rows].sort((a, b) => {
-      const av = sort.key === 'age' ? a.age_days : a.amount
-      const bv = sort.key === 'age' ? b.age_days : b.amount
-      return (av - bv) * sort.dir
-    })
+    const pick = (x: ImprestAgeingItem) =>
+      sort.key === 'age' ? x.age_days : sort.key === 'stage' ? x.days_at_stage : x.amount
+    return [...rows].sort((a, b) => (pick(a) - pick(b)) * sort.dir)
   }, [items, stageF, bandF, q, sort])
 
   // Collapse back to the first page whenever the filter/search changes.
@@ -197,10 +195,11 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
 
   const handleExport = () =>
     exportToCSV(`imprest-ageing${site ? `-${site}` : ''}`, filtered as unknown as Record<string, unknown>[], [
-      { key: 'ref', label: 'Ref' }, { key: 'stage_key', label: 'Stage' }, { key: 'site', label: 'Site' },
-      { key: 'requester', label: 'Requester' }, { key: 'category', label: 'Category' },
+      { key: 'ref', label: 'Ref' }, { key: 'stage_key', label: 'Stage' }, { key: 'owner', label: 'With (current owner)' },
+      { key: 'site', label: 'Site' }, { key: 'requester', label: 'Requester' }, { key: 'category', label: 'Category' },
       { key: 'amount', label: 'Requested (INR)' }, { key: 'net_payable', label: 'Net payable (INR)' },
-      { key: 'submitted_at', label: 'Submitted' }, { key: 'age_days', label: 'Waiting (days)' },
+      { key: 'submitted_at', label: 'Submitted' }, { key: 'days_at_stage', label: 'Days at stage' },
+      { key: 'age_days', label: 'Waiting (days)' },
     ])
 
   const bandCount = (b: AgeBand) => items.filter((i) => i.band === b).length
@@ -253,17 +252,18 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
 
       {/* Desktop table */}
       <div className="hidden md:block overflow-x-auto rounded-2xl border border-stone-100 bg-white" style={{ boxShadow: '0 4px 16px rgba(146,64,14,0.07)' }}>
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[1040px]">
           <thead className="bg-stone-50 text-stone-400">
             <tr className="text-left">
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Ref</th>
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Stage</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">With</th>
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Site</th>
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Requester</th>
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Category</th>
               <th onClick={() => toggleSort('amt')} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-right cursor-pointer select-none hover:text-stone-600">Requested <SortArrow k="amt" /></th>
               <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-right">Net payable</th>
-              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Submitted</th>
+              <th onClick={() => toggleSort('stage')} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-right cursor-pointer select-none hover:text-stone-600">At stage <SortArrow k="stage" /></th>
               <th onClick={() => toggleSort('age')} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-right cursor-pointer select-none hover:text-stone-600">Waiting <SortArrow k="age" /></th>
             </tr>
           </thead>
@@ -275,17 +275,18 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
                   {it.flag && <AlertTriangle size={11} className="inline ml-1 text-rose-500" />}
                 </td>
                 <td className="px-3 py-2 text-[12px] text-stone-600">{stageLabel.get(it.stage_key) ?? it.stage_key}</td>
+                <td className="px-3 py-2 text-[12px] font-medium text-stone-700 whitespace-nowrap">{it.owner}</td>
                 <td className="px-3 py-2 text-[12px] text-stone-600">{it.site ?? '—'}</td>
                 <td className="px-3 py-2 text-[12px] text-stone-600">{it.requester}</td>
                 <td className="px-3 py-2 text-[12px] text-stone-400">{it.category ?? '—'}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-[12.5px] text-stone-700">{inr(it.amount)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-[12.5px] text-stone-500">{it.net_payable === null ? <span className="text-stone-300">—</span> : inr(it.net_payable)}</td>
-                <td className="px-3 py-2 text-[12px] text-stone-400 whitespace-nowrap">{it.submitted_at}</td>
+                <td className="px-3 py-2 text-right"><AgeChip days={it.days_at_stage} /></td>
                 <td className="px-3 py-2 text-right"><AgeChip days={it.age_days} /></td>
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-stone-400 text-sm">No items match these filters 📭</td></tr>
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-stone-400 text-sm">No items match these filters 📭</td></tr>
             )}
           </tbody>
         </table>
@@ -306,6 +307,8 @@ function StuckItems({ items, stages, site }: { items: ImprestAgeingItem[]; stage
               <AgeChip days={it.age_days} />
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2.5 text-[12px]">
+              <div><span className="text-stone-400 block text-[10px] uppercase">With</span><span className="text-stone-700 font-medium">{it.owner}</span></div>
+              <div><span className="text-stone-400 block text-[10px] uppercase">At stage</span><span className="font-semibold text-stone-800">{it.days_at_stage}d <span className="text-stone-400 font-normal">({it.age_days}d total)</span></span></div>
               <div><span className="text-stone-400 block text-[10px] uppercase">Site</span><span className="text-stone-700">{it.site ?? '—'}</span></div>
               <div><span className="text-stone-400 block text-[10px] uppercase">Requester</span><span className="text-stone-700">{it.requester}</span></div>
               <div><span className="text-stone-400 block text-[10px] uppercase">Requested</span><span className="text-stone-800 font-semibold tabular-nums">{inr(it.amount)}</span></div>

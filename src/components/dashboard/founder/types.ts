@@ -86,11 +86,13 @@ export interface ImprestAgeingItem {
   stage_key: string
   site: string | null
   requester: string
+  owner: string
   category: string | null
   amount: number
   net_payable: number | null
   submitted_at: string
   age_days: number
+  days_at_stage: number
   band: AgeBand
   flag: 'paid_not_closed' | 'rejected_in_pipeline' | null
 }
