@@ -51,28 +51,21 @@ export async function fetchMyTasks(authUserId: string): Promise<DelTask[]> {
 
 // ── Team members (for head/founder assignment) ────────────────────────────────
 
-// Org/approval accounts that are the primary of a dual identity (a personal account
-// points to them via points_alias_of). Hidden from assignment pickers so each person
-// appears ONCE and delegation routes to their personal account; points still merge on
-// the leaderboard (get_work_scores folds the alias into the org card).
-async function aliasedPrimaryIds(): Promise<Set<string>> {
-  const { data } = await supabase
-    .from('employees')
-    .select('points_alias_of')
-    .not('points_alias_of', 'is', null)
-  return new Set((data ?? []).map((r: { points_alias_of: string }) => r.points_alias_of))
-}
-
+// Dual-identity people (e.g. Ritu, Avisha) have a personal account that points to
+// their org/approval account via points_alias_of. Delegation actually runs on the ORG
+// account, so we hide the PERSONAL alias from assignment pickers + team lists: each
+// person appears ONCE (the org id), tasks route there, and that's the same card the
+// leaderboard shows. `.is('points_alias_of', null)` drops the alias rows.
 export async function fetchTeamMembers(roleGroup: string): Promise<Employee[]> {
   const { data, error } = await supabase
     .from('employees')
     .select('id, auth_user_id, name, email, role, is_head, is_active')
     .eq('role', roleGroup)
     .eq('is_active', true)
+    .is('points_alias_of', null)
     .order('name')
   if (error) throw error
-  const hidden = await aliasedPrimaryIds()
-  return (data ?? []).filter((e) => !(e.auth_user_id && hidden.has(e.auth_user_id))) as Employee[]
+  return (data ?? []) as Employee[]
 }
 
 export async function fetchAllActiveEmployees(): Promise<Employee[]> {
@@ -80,10 +73,10 @@ export async function fetchAllActiveEmployees(): Promise<Employee[]> {
     .from('employees')
     .select('id, auth_user_id, name, email, role, is_head, is_active')
     .eq('is_active', true)
+    .is('points_alias_of', null)
     .order('name')
   if (error) throw error
-  const hidden = await aliasedPrimaryIds()
-  return (data ?? []).filter((e) => !(e.auth_user_id && hidden.has(e.auth_user_id))) as Employee[]
+  return (data ?? []) as Employee[]
 }
 
 // ── Projects (for the task-form project picker; live from public.projects) ─────

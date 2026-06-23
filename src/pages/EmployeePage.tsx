@@ -35,7 +35,7 @@ export function EmployeePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { employee } = useAuth()
-  const [period, setPeriod] = useState<WorkPeriod>('all')
+  const [period, setPeriod] = useState<WorkPeriod>('month')
 
   // Staff may only view their own scorecard; send them to it if they try another.
   useEffect(() => {
