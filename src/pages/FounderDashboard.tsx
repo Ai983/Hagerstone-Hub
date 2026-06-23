@@ -19,9 +19,9 @@ const CpsSection               = lazy(() => import('../components/dashboard/foun
 const ProjectCostsSection      = lazy(() => import('../components/dashboard/founder/ProjectCostsSection').then(m => ({ default: m.ProjectCostsSection })))
 const DelegationAnalyticsSection = lazy(() => import('../components/dashboard/founder/DelegationAnalyticsSection').then(m => ({ default: m.DelegationAnalyticsSection })))
 const ImprestAgeingSection     = lazy(() => import('../components/dashboard/founder/ImprestAgeingSection').then(m => ({ default: m.ImprestAgeingSection })))
-// Below-fold operational / leaderboard sections
-const DelegationFounderSection = lazy(() => import('../components/dashboard/DelegationFounderSection').then(m => ({ default: m.DelegationFounderSection })))
-const GamificationSection      = lazy(() => import('../components/dashboard/GamificationSection').then(m => ({ default: m.GamificationSection })))
+// Below-fold unified Work Score board (single company-wide leaderboard)
+const RecognitionStrip = lazy(() => import('../components/dashboard/RecognitionStrip').then(m => ({ default: m.RecognitionStrip })))
+const WorkLeaderboard  = lazy(() => import('../components/dashboard/WorkLeaderboard').then(m => ({ default: m.WorkLeaderboard })))
 
 /** Skeleton fallback for Suspense boundaries */
 function SectionSkeleton() {
@@ -379,19 +379,13 @@ export function FounderDashboard() {
           </div>
         </DeferUntilVisible>
 
-        {/* ── Delegation operational view — deferred ── */}
+        {/* ── Unified Work Score — the single company-wide leaderboard ── */}
         <DeferUntilVisible>
-          <Suspense fallback={<SectionSkeleton />}>
-            <DelegationFounderSection />
-          </Suspense>
-        </DeferUntilVisible>
-
-        {/* ── Leaderboards — deferred ── */}
-        <DeferUntilVisible>
-          <div>
-            <h2 className="text-sm font-medium text-stone-700 mb-3">CPS/Finance Rewards — team leaderboards</h2>
+          <div className="space-y-4">
+            <h2 className="text-sm font-medium text-stone-700">Work Score — company-wide recognition</h2>
             <Suspense fallback={<SectionSkeleton />}>
-              <GamificationSection />
+              <RecognitionStrip />
+              <WorkLeaderboard />
             </Suspense>
           </div>
         </DeferUntilVisible>

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
@@ -8,10 +7,8 @@ import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanba
 import { isLeadership } from '../components/LeadershipRoute'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { GamificationSection } from '../components/dashboard/GamificationSection'
+import { MyScoreCard } from '../components/dashboard/MyScoreCard'
 import { EmployeeDelegationBoard } from '../components/dashboard/EmployeeDelegationBoard'
-import { DelegationPointsCard } from '../components/dashboard/DelegationPointsCard'
-import type { DelegationPeriod } from '../lib/delegation-scores'
 import { getPlacement } from '../lib/gamification'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { FounderAvatar } from '../components/FounderAvatar'
@@ -38,14 +35,12 @@ export function DashboardPage() {
   // Delegation super-users (Ritu) get the org employee board first instead of
   // gamification; their team standings live on the Gamification page.
   const isEmpBoard = !!employee?.del_super
-  const [delPeriod, setDelPeriod] = useState<DelegationPeriod>('all')
   const navActions = [
     { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
     { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
     { key: 'verify',    label: 'Verify',       Icon: ClipboardList,  show: !!employee?.is_head || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/verify') },
     { key: 'leaderboard', label: 'Leaderboard', Icon: Trophy,        show: isLeadership(employee), onClick: () => navigate('/leaderboard') },
     { key: 'myscore',   label: 'My Scorecard', Icon: UserRound,      show: !!employee?.auth_user_id, onClick: () => navigate(`/employee/${employee?.auth_user_id}`) },
-    { key: 'gam',       label: 'Gamification', Icon: BarChart2,      show: !!employee?.del_super, onClick: () => navigate('/delegation/org') },
     { key: 'approvals', label: 'Approvals',    Icon: ClipboardCheck, show: role === 'founder' || isAdmin, onClick: () => navigate('/approvals') },
     { key: 'founder',   label: 'Overview',     Icon: LineChart,      show: role === 'founder' || isAdmin, onClick: () => navigate('/founder') },
     { key: 'admin',     label: 'Admin',        Icon: Settings,       show: isAdmin, onClick: () => navigate('/admin/employees') },
@@ -157,10 +152,10 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Gamification — top slot (procurement / finance / management) */}
+        {/* Work Score — top slot (procurement / finance / management) */}
         {placement === 'top' && !isEmpBoard && (
           <div className="mb-8">
-            <GamificationSection />
+            <MyScoreCard />
           </div>
         )}
 
@@ -210,22 +205,17 @@ export function DashboardPage() {
           </p>
         </motion.div>
 
-        {/* Gamification — bottom slot (site engineers) */}
+        {/* Work Score — bottom slot (site engineers) */}
         {placement === 'bottom' && !isEmpBoard && (
           <div className="mt-8">
-            <GamificationSection />
+            <MyScoreCard />
           </div>
         )}
 
-        {/* Ritu / del_super: own delegation points — below the board + modules */}
+        {/* Ritu / del_super: own unified Work Score — below the board + modules */}
         {isEmpBoard && employee?.auth_user_id && (
-          <div className="mt-8 max-w-md">
-            <DelegationPointsCard
-              authUserId={employee.auth_user_id}
-              roleGroup={employee.role}
-              period={delPeriod}
-              onPeriodChange={setDelPeriod}
-            />
+          <div className="mt-8">
+            <MyScoreCard />
           </div>
         )}
       </main>
