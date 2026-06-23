@@ -74,17 +74,18 @@ export async function downloadImprestAgeingPdf(data: ImprestAgeing) {
   doc.text(`All stuck imprests (${data.items.length})`, margin, y); y += 8
   autoTable(doc, {
     startY: y,
-    head: [['Ref', 'Stage', 'Site', 'Requester', 'Category', 'Requested', 'Net payable', 'Submitted', 'Waiting']],
+    head: [['Ref', 'Stage', 'With', 'Site', 'Requester', 'Requested', 'Net payable', 'At stage', 'Waiting']],
     body: data.items.map((it) => [
       it.ref + (it.flag ? ' (!)' : ''),
       it.stage_key,
-      it.site ?? '-', it.requester, it.category ?? '-',
+      it.owner,
+      it.site ?? '-', it.requester,
       inr0(it.amount), it.net_payable === null ? '-' : inr0(it.net_payable),
-      it.submitted_at, `${it.age_days}d`,
+      `${it.days_at_stage}d`, `${it.age_days}d`,
     ]),
     styles: { fontSize: 7, cellPadding: 2.5, textColor: ink },
     headStyles: { fillColor: ink, fontSize: 7 },
-    columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 8: { halign: 'right' } },
+    columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
     margin: { left: margin, right: margin },
   })
   // @ts-expect-error augmented
