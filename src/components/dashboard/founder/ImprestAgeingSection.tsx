@@ -391,7 +391,8 @@ function PoPayments({ rows }: { rows: PoPaymentRow[] }) {
   const gt30 = live.filter((r) => r.age_days > 30).length
   return (
     <div className="space-y-2">
-      <div className="overflow-x-auto rounded-2xl border border-stone-100 bg-white" style={{ boxShadow: '0 4px 16px rgba(146,64,14,0.07)' }}>
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl border border-stone-100 bg-white" style={{ boxShadow: '0 4px 16px rgba(146,64,14,0.07)' }}>
         <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-stone-50 text-stone-400">
             <tr className="text-left">
@@ -425,6 +426,28 @@ function PoPayments({ rows }: { rows: PoPaymentRow[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-2">
+        {rows.map((r) => (
+          <Card key={r.ref} className={`p-3 ${r.is_test ? 'opacity-50 italic' : ''}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-mono text-[12px] text-stone-700">{r.ref}</div>
+                <div className="text-[12px] text-stone-600 truncate">{r.supplier ?? '—'}</div>
+              </div>
+              <AgeChip days={r.age_days} />
+            </div>
+            <div className="text-[11px] text-stone-400 mt-1 truncate">{r.project ?? '—'}</div>
+            <div className="grid grid-cols-3 gap-2 mt-2 text-[12px]">
+              <div><span className="text-stone-400 block text-[10px] uppercase">PO value</span><span className="text-stone-700 tabular-nums">{inr(r.po_value)}</span></div>
+              <div><span className="text-stone-400 block text-[10px] uppercase">Paid</span><span className="text-stone-600 tabular-nums">{r.paid ? inr(r.paid) : '—'}</span></div>
+              <div><span className="text-stone-400 block text-[10px] uppercase">Outstanding</span><span className="font-semibold text-rose-600 tabular-nums">{inr(r.outstanding)}</span></div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
       <p className="text-[12px] text-stone-400">
         {live.length} live unsettled PO{live.length !== 1 ? 's' : ''} carrying <b className="text-stone-600">{inr(totalOut)}</b> outstanding; {gt30} &gt;30 days old.
         {rows.some((r) => r.is_test) && ' Test/dummy POs are greyed and excluded from totals.'}

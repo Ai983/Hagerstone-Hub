@@ -32,7 +32,7 @@ export function PublicAgeingReport() {
           <div className="text-[11px] text-stone-400">Live finance report · read-only</div>
         </div>
       </header>
-      <main className="max-w-6xl mx-auto px-4 py-6">
+      <main className="max-w-6xl mx-auto px-3 sm:px-4 py-5 sm:py-6">
         {error ? (
           <div className="bg-white rounded-2xl border border-stone-100 p-8 text-center text-stone-500 text-sm">{error}</div>
         ) : !data ? (
