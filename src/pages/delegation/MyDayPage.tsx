@@ -147,11 +147,30 @@ function SubmitModal({ task, onClose, onSubmitted }: SubmitModalProps) {
     setUploading(files.length > 0)
 
     try {
-      // Upload attachments first
-      const uploadedAttachments = await Promise.all(
+      // Upload attachments first. Use allSettled so one bad file can't block
+      // the whole submission — upload what we can, warn about the rest.
+      const results = await Promise.allSettled(
         files.map((f) => uploadAttachment(task.id, f)),
       )
       setUploading(false)
+
+      const uploadedAttachments = results
+        .filter((r) => r.status === 'fulfilled')
+        .map((r) => (r as PromiseFulfilledResult<Awaited<ReturnType<typeof uploadAttachment>>>).value)
+
+      const failedFiles = files
+        .filter((_, i) => results[i].status === 'rejected')
+        .map((f) => f.name)
+
+      // Only abort if there were files and every single one failed.
+      if (files.length > 0 && uploadedAttachments.length === 0) {
+        toast.error(
+          `Koi bhi file upload nahi hui — submit nahi hua. Pehli file: ${
+            (results[0] as PromiseRejectedResult).reason?.message ?? 'unknown error'
+          }`,
+        )
+        return
+      }
 
       await submitTask({
         task_id: task.id,
@@ -159,7 +178,14 @@ function SubmitModal({ task, onClose, onSubmitted }: SubmitModalProps) {
         attachments: uploadedAttachments,
       })
 
-      toast.success('Kaam submit ho gaya! AI scoring chal raha hai…')
+      if (failedFiles.length > 0) {
+        toast.success('Kaam submit ho gaya! AI scoring chal raha hai…')
+        toast.error(
+          `${failedFiles.length} file(s) upload nahi hui: ${failedFiles.join(', ')}. Baaki sab submit ho gayi.`,
+        )
+      } else {
+        toast.success('Kaam submit ho gaya! AI scoring chal raha hai…')
+      }
       onSubmitted()
       onClose()
     } catch (err: unknown) {

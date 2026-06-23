@@ -251,7 +251,15 @@ export async function uploadAttachment(
 ): Promise<{ url: string; type: string; name: string; size: number }> {
   const ext = file.name.split('.').pop() ?? 'bin'
   const uuid = crypto.randomUUID()
-  const path = `task/${taskId}/${uuid}-${file.name}`
+  // Supabase Storage rejects keys with characters outside a restricted set
+  // (e.g. "~", non-ASCII). Sanitize the name so a badly-named file can't
+  // fail the whole upload. The original name is preserved in the return value.
+  const safeName = file.name
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '')
+  const path = `task/${taskId}/${uuid}-${safeName || `file.${ext}`}`
 
   const { error: uploadErr } = await supabase.storage
     .from('delegation-uploads')
