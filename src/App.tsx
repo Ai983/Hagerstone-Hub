@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FounderDashboard } from './pages/FounderDashboard'
+import { CommandCenterPage } from './pages/CommandCenterPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { HeadRoute } from './components/HeadRoute'
@@ -45,6 +46,12 @@ export default function App() {
             <ProtectedRoute>
               <FounderDashboard />
             </ProtectedRoute>
+          } />
+
+          <Route path="/command-center" element={
+            <DelSuperRoute>
+              <CommandCenterPage />
+            </DelSuperRoute>
           } />
 
           <Route path="/admin/employees" element={

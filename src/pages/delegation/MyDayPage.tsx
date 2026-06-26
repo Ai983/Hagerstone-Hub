@@ -500,6 +500,15 @@ interface CreateFormProps {
   teamMembers: Employee[]
   onClose: () => void
   onCreated: () => void
+  /** Optional pre-fill — used when dispatching a Command Center draft through this same form. */
+  initial?: {
+    title?: string
+    assignedTo?: string
+    projectId?: string
+    onBehalfOf?: string
+    taskDate?: string
+    dueTime?: string
+  }
 }
 
 const TIER_COLOR: Record<string, string> = {
@@ -510,7 +519,7 @@ const TIER_COLOR: Record<string, string> = {
 }
 const DEPT_LABEL: Record<string, string> = ROLE_SHORT_LABELS
 
-export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated }: CreateFormProps) {
+export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCreated, initial }: CreateFormProps) {
   const isHead    = employee.is_head
   const isGlobal  = employee.role === 'founder' || employee.role === 'admin' || employee.del_super === true
   const canAssign = isHead || isGlobal
@@ -529,13 +538,13 @@ export function CreateTaskForm({ employee, taskTypes, teamMembers, onClose, onCr
   })()
 
   const qc = useQueryClient()
-  const [title, setTitle]               = useState('')
+  const [title, setTitle]               = useState(initial?.title ?? '')
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
-  const [taskDate, setTaskDate]         = useState(today())
-  const [dueTime, setDueTime]           = useState('')
-  const [assignedTo, setAssignedTo]     = useState(firstAssignableUid)
-  const [projectId, setProjectId]       = useState('')
-  const [onBehalfOf, setOnBehalfOf]     = useState('')
+  const [taskDate, setTaskDate]         = useState(initial?.taskDate || today())
+  const [dueTime, setDueTime]           = useState(initial?.dueTime ?? '')
+  const [assignedTo, setAssignedTo]     = useState(initial?.assignedTo || firstAssignableUid)
+  const [projectId, setProjectId]       = useState(initial?.projectId ?? '')
+  const [onBehalfOf, setOnBehalfOf]     = useState(initial?.onBehalfOf ?? '')
   const [saving, setSaving]             = useState(false)
 
   // Add-new-type panel
