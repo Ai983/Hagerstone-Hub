@@ -17,6 +17,17 @@ const MAX_MESSAGES = 400      // hard cap per group per run
 const MAX_FLAGS = 15
 const MAX_DRAFTS = 15
 
+// Command Center v2 — points are a reward currency drawn from a fixed ladder.
+// The AI suggests a tier; we snap to the nearest allowed value and prefill it as
+// custom_points so the operator table shows a ready tier (operator can override).
+const POINTS_LADDER = [50, 100, 150, 200, 300, 500, 1000, 2000]
+function snapPoints(n: number | null | undefined): number {
+  if (n == null || Number.isNaN(n)) return 100
+  let best = POINTS_LADDER[0], bd = Infinity
+  for (const v of POINTS_LADDER) { const d = Math.abs(v - n); if (d < bd) { bd = d; best = v } }
+  return best
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -86,6 +97,7 @@ const BRIEF_TOOL = {
             role_group: { type: 'string', description: 'Department/role of the assignee if known, else empty.' },
             priority: { type: 'string', enum: ['low', 'medium', 'high'] },
             due_date: { type: 'string', description: 'ISO YYYY-MM-DD if stated/implied, else empty.' },
+            suggested_points: { type: 'integer', description: 'Reward tier for completing this task — MUST be one of 50, 100, 150, 200, 300, 500, 1000, 2000. Pick by effort/size: trivial ack = 50, normal task = 100-200, multi-day or high-stakes = 300-1000.' },
           },
           required: ['title'],
         },
@@ -231,6 +243,15 @@ serve(async (req) => {
       : null
     const hasDelegation = mentionFreq.size > 0
 
+    // Deterministic "who asked" + original message — the most recent leadership
+    // message that carries an @mention. Drives the table's Assigned-by + excerpt.
+    const leadMsg = [...msgs].reverse().find(
+      (m: any) => m.is_from_leadership && Array.isArray(m.mentioned_employee_ids) && m.mentioned_employee_ids.length,
+    )
+    const assignedByName = leadMsg?.sender_name ?? null
+    const assignedByPhone = leadMsg?.sender_phone ?? null
+    const sourceExcerpt = leadMsg?.body ?? leadMsg?.transcript ?? null
+
     // Flags — only when a leadership member explicitly @mentioned someone
     const flags = (Array.isArray(brief.flags) ? brief.flags : [])
       .filter((f: any) => f?.excerpt && String(f.excerpt).trim())
@@ -238,7 +259,7 @@ serve(async (req) => {
     if (flags.length && hasDelegation) {
       await admin.from('gie_flagged_items').insert(flags.map((f: any) => ({
         group_id: g.id, summary_id: sum.id,
-        leader_phone: f.leader_phone || null,
+        leader_phone: f.leader_phone || assignedByPhone || null,
         excerpt: String(f.excerpt).trim(), status: 'open',
       })))
     }
@@ -252,14 +273,26 @@ serve(async (req) => {
         // 1st priority: phone-resolved mention ID  2nd: Claude's name match  3rd: null
         const nameMatch = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
         const assigneeId = nameMatch ?? topMentionId ?? null
+        const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(d.due_date ?? '') ? d.due_date : null
+        const pts = snapPoints(d.suggested_points)
         return {
           group_id: g.id, summary_id: sum.id,
           title: String(d.title).trim(),
           description: d.description || null,
           suggested_assignee_employee_id: assigneeId,
           role_group: d.role_group || null,
-          task_date: /^\d{4}-\d{2}-\d{2}$/.test(d.due_date ?? '') ? d.due_date : null,
+          task_date: dueDate,
           status: 'pending',
+          // ── v2 operator-table enrichment ──
+          on_behalf_of:        assignedByName,                         // originating leader
+          assigned_by_name:    assignedByName,
+          assigned_by_phone:   assignedByPhone,
+          source_excerpt:      sourceExcerpt,
+          assignee_confidence: assigneeId ? 'high' : 'low',
+          due_at:              dueDate ? new Date(`${dueDate}T18:00:00`).toISOString() : null,
+          suggested_points:    pts,
+          custom_points:       pts,                                    // prefill the ladder tier (operator can override)
+          needs_info:          !assigneeId || !dueDate,
         }
       }))
     }

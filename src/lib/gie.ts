@@ -68,6 +68,49 @@ export interface GieDraftTask extends WithGroupName {
   status: GieDraftStatus
   approved_task_id: string | null
   created_at: string
+  // ── v2 draft-extraction enrichment (Command Center operator table) ──
+  assigned_by_name: string | null      // the leader who sent the ask (deterministic)
+  assigned_by_phone: string | null
+  source_excerpt: string | null        // the original WhatsApp message
+  assignee_confidence: string | null   // 'high' | 'low' | null
+  due_at: string | null                // timestamptz when stated/implied
+  suggested_points: number | null      // AI-suggested ladder value
+  needs_info: boolean
+}
+
+/** A dispatched task as the operator sees it: del_tasks joined to its gie_task_tracking. */
+export interface GieTrackedTask {
+  // del_tasks
+  id: string                 // del_tasks.id
+  title: string
+  description: string | null
+  role_group: string
+  status: string             // assigned | in_progress | submitted | under_review | completed | cancelled
+  task_date: string
+  due_time: string | null
+  custom_points: number | null
+  on_behalf_of: string | null
+  submitted_at: string | null
+  created_at: string
+  assigned_to: string        // auth uid
+  // from the originating draft (for the Group filter)
+  group_id: string | null
+  group_name: string | null
+  // gie_task_tracking (embedded)
+  tracking: {
+    id: string
+    assignee_employee_id: string | null
+    assignee_phone: string | null
+    due_at: string | null
+    task_points: number | null
+    reminder_count: number
+    last_reminder_at: string | null
+    next_reminder_at: string | null
+    is_completed: boolean
+    completed_at: string | null
+    penalty_applied: boolean
+    penalty_points: number
+  } | null
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -76,6 +119,7 @@ const GROUPS_KEY = ['gie_groups'] as const
 const SUMMARIES_KEY = (groupId: string | null | undefined) => ['gie_summaries', groupId] as const
 const FLAGS_KEY = ['gie_flags'] as const
 const DRAFTS_KEY = ['gie_drafts'] as const
+const TRACKING_KEY = ['gie_tracking'] as const
 
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +163,47 @@ export async function fetchDraftTasks(groupId?: string | null): Promise<GieDraft
   return (data ?? []) as GieDraftTask[]
 }
 
+/**
+ * All DISPATCHED tasks that originated from a draft (del_tasks ⨝ gie_task_tracking).
+ * Powers the Active / Completed / Overdue tabs. Group is carried from the draft.
+ */
+export async function fetchTrackedTasks(): Promise<GieTrackedTask[]> {
+  const { data, error } = await supabase
+    .from('gie_task_tracking')
+    .select(`
+      id, assignee_employee_id, assignee_phone, due_at, task_points,
+      reminder_count, last_reminder_at, next_reminder_at,
+      is_completed, completed_at, penalty_applied, penalty_points, created_at,
+      draft:gie_draft_tasks(group_id, group:gie_groups(name)),
+      task:del_tasks!inner(
+        id, title, description, role_group, status, task_date, due_time,
+        custom_points, on_behalf_of, submitted_at, created_at, assigned_to
+      )
+    `)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  // deno-lint-ignore no-explicit-any
+  return (data ?? []).map((r: any) => ({
+    ...r.task,
+    group_id: r.draft?.group_id ?? null,
+    group_name: r.draft?.group?.name ?? null,
+    tracking: {
+      id: r.id,
+      assignee_employee_id: r.assignee_employee_id,
+      assignee_phone: r.assignee_phone,
+      due_at: r.due_at,
+      task_points: r.task_points,
+      reminder_count: r.reminder_count,
+      last_reminder_at: r.last_reminder_at,
+      next_reminder_at: r.next_reminder_at,
+      is_completed: r.is_completed,
+      completed_at: r.completed_at,
+      penalty_applied: r.penalty_applied,
+      penalty_points: r.penalty_points,
+    },
+  })) as GieTrackedTask[]
+}
+
 // ── Hooks (60s polling keeps the page fresh even before gie_pulse exists) ──────
 
 export function useGieGroups() {
@@ -160,6 +245,17 @@ export function useDraftTasks(groupId?: string | null) {
   })
 }
 
+/** Dispatched tasks (Active / Completed / Overdue tabs). Not group-scoped at the
+ *  query level — the operator filters by group client-side via group_id. */
+export function useTrackedTasks() {
+  return useQuery({
+    queryKey: TRACKING_KEY,
+    queryFn: fetchTrackedTasks,
+    staleTime: 10_000,
+    refetchInterval: 60_000,
+  })
+}
+
 /** Trigger the summariser on demand for one group (Refresh button). Runs under the
  *  logged-in del_super/founder/admin session — the function accepts their JWT. */
 export async function triggerSummarise(groupId: string): Promise<void> {
@@ -185,6 +281,7 @@ export function useGiePulse() {
             qc.invalidateQueries({ queryKey: ['gie_summaries'] })
             qc.invalidateQueries({ queryKey: FLAGS_KEY })
             qc.invalidateQueries({ queryKey: DRAFTS_KEY })
+            qc.invalidateQueries({ queryKey: TRACKING_KEY })
           })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -227,6 +324,28 @@ export async function approveDraft(draftId: string): Promise<void> {
   if (error) throw error
 }
 
+/** Inline-edit a still-pending draft from the operator table (assignee / details /
+ *  due / points). RLS (gie_drafts_update → is_del_super) gates this. */
+export interface DraftPatch {
+  title?: string
+  description?: string | null
+  suggested_assignee_employee_id?: string | null
+  role_group?: string | null
+  task_date?: string | null
+  due_time?: string | null
+  due_at?: string | null
+  custom_points?: number | null
+  needs_info?: boolean
+}
+export async function updateDraft(draftId: string, patch: DraftPatch): Promise<void> {
+  const { error } = await supabase
+    .from('gie_draft_tasks')
+    .update(patch)
+    .eq('id', draftId)
+    .eq('status', 'pending')
+  if (error) throw error
+}
+
 export interface DispatchDraftArgs {
   draft: GieDraftTask
   assignedToAuthUid: string   // resolved auth.users.id of the assignee
@@ -237,13 +356,18 @@ export interface DispatchDraftArgs {
   dueTime: string | null      // 'HH:MM'
   customPoints: number | null
   onBehalfOf: string | null   // 'Dhruv Sir' | 'Bhaskar Sir' | null
+  // ── reminder/penalty tracking (v2) ──
+  assigneeEmployeeId: string | null  // employees.id of the assignee
+  assigneePhone: string | null       // for the 1:1 reminder pings
+  dueAt: string | null               // timestamptz; R1 fires here (null = no reminders)
 }
 
 /**
  * Dispatch a draft as a real del_tasks row by REUSING createTask() — which also
  * best-effort fires del-notify-assign (WhatsApp) because assigned_to !== assigned_by.
- * Then flips the draft to 'approved'. The two writes are not atomic: if the task is
- * created but the flip fails, we return flipped=false (do NOT roll the task back).
+ * Then records a gie_task_tracking row (reminder/penalty engine) and flips the draft
+ * to 'approved'. Writes are not atomic: if the task is created but a follow-up write
+ * fails we return flipped=false (do NOT roll the task back — that would double-notify).
  */
 export async function dispatchDraft(args: DispatchDraftArgs): Promise<{ taskId: string; flipped: boolean }> {
   if (args.draft.status !== 'pending' || args.draft.approved_task_id) {
@@ -255,13 +379,25 @@ export async function dispatchDraft(args: DispatchDraftArgs): Promise<{ taskId: 
     description:   args.draft.description ?? '',
     type_code:     args.draft.type_code ?? '',
     task_date:     args.taskDate,
-    role_group:    args.roleGroup,            // never empty — defaulted by the card
+    role_group:    args.roleGroup,            // never empty — defaulted by the row
     assigned_to:   args.assignedToAuthUid,
     assigned_by:   args.assignedByAuthUid,    // === auth.uid()
     project_id:    args.projectId,
     custom_points: args.customPoints,
     on_behalf_of:  args.onBehalfOf,
     due_time:      args.dueTime,
+  })
+
+  // Reminder/penalty tracker. R1 is anchored at due_at; a null due means no reminders
+  // until one is set. Best-effort — a tracking failure must not block the dispatch.
+  await supabase.from('gie_task_tracking').insert({
+    del_task_id:          taskId,
+    draft_id:             args.draft.id,
+    assignee_employee_id: args.assigneeEmployeeId,
+    assignee_phone:       args.assigneePhone,
+    due_at:               args.dueAt,
+    task_points:          args.customPoints,
+    next_reminder_at:     args.dueAt,         // R1 at due (cadence in the engine)
   })
 
   // Only flip a still-pending draft (extra idempotency latch against double-send).
