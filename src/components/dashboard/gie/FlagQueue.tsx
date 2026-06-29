@@ -1,8 +1,26 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Flag, Check, X, Loader2 } from 'lucide-react'
-import { useFlaggedItems, actionFlag, dismissFlag } from '../../../lib/gie'
+import { useFlaggedItems, actionFlag, dismissFlag, type GieFlaggedItem } from '../../../lib/gie'
+
+/** Collapse spelling/whitespace-equivalent excerpts for dedupe. */
+function normExcerpt(s: string): string {
+  return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Near-identical flags arrive in pairs (leadership messages echo as fromMe under
+ *  two sender names). Keep the most recent of each excerpt and count the rest. */
+function dedupeFlags(flags: GieFlaggedItem[]): { flag: GieFlaggedItem; dupes: number }[] {
+  const seen = new Map<string, { flag: GieFlaggedItem; dupes: number }>()
+  for (const f of flags) {                       // input is newest-first
+    const k = normExcerpt(f.excerpt)
+    const hit = seen.get(k)
+    if (hit) hit.dupes += 1
+    else seen.set(k, { flag: f, dupes: 0 })
+  }
+  return [...seen.values()]
+}
 
 interface Props {
   /** Selected group — flags are scoped to it. */
@@ -22,6 +40,7 @@ function fmtRel(iso: string): string {
 
 export function FlagQueue({ groupId, actionedByEmployeeId }: Props) {
   const { data: flags = [], isLoading } = useFlaggedItems(groupId)
+  const deduped = useMemo(() => dedupeFlags(flags), [flags])
   const qc = useQueryClient()
   const [busyId, setBusyId] = useState<string | null>(null)
 
@@ -46,9 +65,9 @@ export function FlagQueue({ groupId, actionedByEmployeeId }: Props) {
           <Flag size={16} className="text-rose-500" />
           <h2 className="text-sm font-semibold text-stone-700">Leadership Flags</h2>
         </div>
-        {flags.length > 0 && (
+        {deduped.length > 0 && (
           <span className="text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
-            {flags.length} open
+            {deduped.length} open
           </span>
         )}
       </div>
@@ -57,11 +76,11 @@ export function FlagQueue({ groupId, actionedByEmployeeId }: Props) {
         <div className="space-y-2">
           {[0, 1].map((i) => <div key={i} className="h-16 rounded-xl bg-stone-50 animate-pulse border border-stone-100" />)}
         </div>
-      ) : flags.length === 0 ? (
+      ) : deduped.length === 0 ? (
         <p className="text-xs text-stone-400 py-6 text-center">No open leadership flags 🎉</p>
       ) : (
         <div className="space-y-2">
-          {flags.map((f) => {
+          {deduped.map(({ flag: f, dupes }) => {
             const busy = busyId === f.id
             return (
               <div key={f.id} className="rounded-xl border border-stone-100 bg-stone-50/60 p-3">
@@ -69,6 +88,7 @@ export function FlagQueue({ groupId, actionedByEmployeeId }: Props) {
                 <div className="flex items-center justify-between gap-2 mt-2">
                   <div className="text-[11px] text-stone-400 truncate">
                     {fmtRel(f.created_at)}
+                    {dupes > 0 && <span className="ml-1 text-stone-400">· ×{dupes + 1}</span>}
                     {f.leader_phone && <span className="ml-1 text-stone-300">· {f.leader_phone}</span>}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

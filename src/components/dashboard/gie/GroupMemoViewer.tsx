@@ -7,6 +7,8 @@ interface Props {
   groups: GieGroup[]
   groupId: string | null
   onGroupChange: (id: string) => void
+  /** When true the brief body is collapsed by default (operator table is primary). */
+  briefCollapsed?: boolean
 }
 
 function fmt(iso: string): string {
@@ -45,11 +47,12 @@ function GroupPill({
   )
 }
 
-export function GroupMemoViewer({ groups, groupId, onGroupChange }: Props) {
+export function GroupMemoViewer({ groups, groupId, onGroupChange, briefCollapsed = false }: Props) {
   const { data: summaries = [], isLoading } = useGroupSummaries(groupId)
   const [showOlder, setShowOlder] = useState(false)
   const [showRolling, setShowRolling] = useState(false)
   const [search, setSearch] = useState('')
+  const [briefOpen, setBriefOpen] = useState(!briefCollapsed)
 
   const latest = summaries[0] ?? null
   const older = summaries.slice(1)
@@ -96,7 +99,18 @@ export function GroupMemoViewer({ groups, groupId, onGroupChange }: Props) {
         </>
       )}
 
+      {/* Collapse toggle (operator table is primary; brief is reference) */}
+      <button
+        type="button"
+        onClick={() => setBriefOpen((v) => !v)}
+        className="mt-3 text-xs font-medium text-amber-700 hover:text-amber-800 flex items-center gap-1"
+      >
+        <ChevronDown size={13} className={`transition-transform ${briefOpen ? 'rotate-180' : ''}`} />
+        {briefOpen ? 'Hide brief' : 'Show brief'}
+      </button>
+
       {/* Latest memo */}
+      {briefOpen && (
       <div className="mt-3">
         {isLoading ? (
           <div className="h-32 rounded-xl bg-stone-50 animate-pulse border border-stone-100" />
@@ -131,9 +145,10 @@ export function GroupMemoViewer({ groups, groupId, onGroupChange }: Props) {
           </div>
         )}
       </div>
+      )}
 
       {/* Older briefs */}
-      {older.length > 0 && (
+      {briefOpen && older.length > 0 && (
         <div className="mt-3">
           <button
             type="button"

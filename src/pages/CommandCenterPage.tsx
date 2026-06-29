@@ -2,17 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, LogOut, Radar, LineChart, FileClock, RefreshCw } from 'lucide-react'
+import { ArrowLeft, LogOut, Radar, LineChart, FileClock, RefreshCw, Flag } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { Button } from '../components/ui/button'
-import { fetchAllActiveEmployees, fetchAllTaskTypes } from '../lib/delegation'
-import { useGieGroups, useGiePulse, triggerSummarise, approveDraft, type GieDraftTask } from '../lib/gie'
-import { CreateTaskForm } from './delegation/MyDayPage'
+import { fetchAllActiveEmployees } from '../lib/delegation'
+import { useGieGroups, useGiePulse, triggerSummarise } from '../lib/gie'
 import { GroupMemoViewer } from '../components/dashboard/gie/GroupMemoViewer'
 import { FlagQueue } from '../components/dashboard/gie/FlagQueue'
-import { DraftTaskQueue } from '../components/dashboard/gie/DraftTaskQueue'
+import { TaskTable } from '../components/command-center/TaskTable'
 import { HeadlineKpis } from '../components/dashboard/founder/HeadlineKpis'
 import type { HeadlineKpi } from '../components/dashboard/founder/types'
 import { ChatbotWidget } from '../components/dashboard/founder/chatbot/ChatbotWidget'
@@ -65,23 +64,17 @@ export function CommandCenterPage() {
     if (!groupId && groups.length > 0) setGroupId(groups[0].id)
   }, [groups, groupId])
 
-  // Shared lookups — same query keys/fns as MyDayPage so the cache + form stay in sync.
+  // Shared lookups — same query key/fn as MyDayPage so the cache stays in sync.
   const { data: employees = [] } = useQuery({ queryKey: ['del_all_active'], queryFn: fetchAllActiveEmployees, enabled: allowed })
-  const { data: taskTypes = [] } = useQuery({ queryKey: ['del_task_types', 'all'], queryFn: fetchAllTaskTypes, enabled: allowed })
 
   const headlineQ = useHeadlineKpis(isFounderAdmin)
 
-  // employees.id → name (preview) and employees.id → auth_user_id (seed the assignee picker).
-  const { empNameById, empAuthById } = useMemo(() => {
+  // employees.id → name (label tracked-task assignees in the operator table).
+  const empNameById = useMemo(() => {
     const names: Record<string, string> = {}
-    const auths: Record<string, string> = {}
-    for (const e of employees) {
-      names[e.id] = e.name
-      if (e.auth_user_id) auths[e.id] = e.auth_user_id
-    }
-    return { empNameById: names, empAuthById: auths }
+    for (const e of employees) names[e.id] = e.name
+    return names
   }, [employees])
-  const [activeDraft, setActiveDraft] = useState<GieDraftTask | null>(null)
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-stone-400 text-sm">Loading…</div>
@@ -146,11 +139,28 @@ export function CommandCenterPage() {
       </motion.header>
 
       {/* Main */}
-      <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-28 sm:pb-12 space-y-6">
-        <GroupMemoViewer groups={groups} groupId={groupId} onGroupChange={setGroupId} />
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-8 pb-28 sm:pb-12 space-y-6">
+        <GroupMemoViewer groups={groups} groupId={groupId} onGroupChange={setGroupId} briefCollapsed />
 
-        <FlagQueue groupId={groupId} actionedByEmployeeId={employee.id} />
-        <DraftTaskQueue groupId={groupId} empNameById={empNameById} onReview={setActiveDraft} />
+        {/* PRIMARY: operator task table — scan, edit inline, one-click dispatch */}
+        {employee.auth_user_id && (
+          <TaskTable
+            groupId={groupId}
+            employees={employees}
+            empNameById={empNameById}
+            assignedByAuthUid={employee.auth_user_id}
+          />
+        )}
+
+        {/* Reference: leadership flags, collapsed by default */}
+        <details className="rounded-2xl bg-white/60 border border-amber-100 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-semibold text-stone-700 flex items-center gap-2">
+            <Flag size={15} className="text-amber-700" /> Leadership Flags
+          </summary>
+          <div className="mt-3">
+            <FlagQueue groupId={groupId} actionedByEmployeeId={employee.id} />
+          </div>
+        </details>
 
         {/* Company snapshot — founder/admin only (del_super coordinators don't see finance) */}
         {isFounderAdmin && (
@@ -177,25 +187,6 @@ export function CommandCenterPage() {
 
       {/* Natural-language analytics chatbot — founders & admins only */}
       {isFounderAdmin && <ChatbotWidget />}
-
-      {/* Dispatch a draft through the SHARED delegation form — same criteria, incl. Kaam ka type */}
-      {activeDraft && (
-        <CreateTaskForm
-          employee={employee}
-          taskTypes={taskTypes}
-          teamMembers={employees}
-          initial={{
-            title: activeDraft.title,
-            assignedTo: activeDraft.suggested_assignee_employee_id ? empAuthById[activeDraft.suggested_assignee_employee_id] : undefined,
-            projectId: activeDraft.project_id ?? undefined,
-            onBehalfOf: activeDraft.on_behalf_of ?? undefined,
-            taskDate: activeDraft.task_date ?? undefined,
-            dueTime: activeDraft.due_time ?? undefined,
-          }}
-          onClose={() => setActiveDraft(null)}
-          onCreated={() => { void approveDraft(activeDraft.id).then(() => qc.invalidateQueries({ queryKey: ['gie_drafts'] })) }}
-        />
-      )}
     </div>
   )
 }

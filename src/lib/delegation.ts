@@ -71,7 +71,7 @@ export async function fetchTeamMembers(roleGroup: string): Promise<Employee[]> {
 export async function fetchAllActiveEmployees(): Promise<Employee[]> {
   const { data, error } = await supabase
     .from('employees')
-    .select('id, auth_user_id, name, email, role, is_head, is_active')
+    .select('id, auth_user_id, name, email, phone, role, is_head, is_active')
     .eq('is_active', true)
     .is('points_alias_of', null)
     .order('name')
