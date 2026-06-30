@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Send, X, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { Send, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { TableRow, TableCell } from '../ui/table'
 import { Button } from '../ui/button'
 import { AssigneeSelect } from './AssigneeSelect'
@@ -12,7 +12,7 @@ import type { Employee } from '../../types'
 
 function fmtDate(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })
 }
 
 export function DispatchRow({
@@ -45,8 +45,8 @@ export function DispatchRow({
 
   const rejectM = useMutation({
     mutationFn: () => rejectDraft(draft.id),
-    onSuccess: () => { toast.success('Dismissed'); invalidate() },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not dismiss'),
+    onSuccess: () => { toast.success('Draft deleted'); invalidate() },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not delete'),
   })
 
   const dispatchM = useMutation({
@@ -165,11 +165,11 @@ export function DispatchRow({
             <Button
               size="sm" variant="ghost"
               disabled={rejectM.isPending}
-              onClick={() => rejectM.mutate()}
+              onClick={() => { if (confirm(`Delete this draft?\n\n“${draft.title}”\n\nIt will be removed from the queue (no task is created, no WhatsApp is sent).`)) rejectM.mutate() }}
               className="h-8 w-7 p-0 shrink-0 text-stone-400 hover:text-red-600"
-              title="Dismiss"
+              title="Delete draft"
             >
-              <X size={14} />
+              {rejectM.isPending ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={14} />}
             </Button>
           </div>
         </TableCell>

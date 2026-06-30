@@ -2,12 +2,14 @@ import type { GieDraftTask, DispatchDraftArgs } from '../../lib/gie'
 import type { Employee } from '../../types'
 
 /** Build the due timestamp the reminder engine anchors R1 on: prefer an explicit
- *  due_at, else compose task_date + due_time (default 18:00). */
+ *  due_at, else compose task_date + due_time (default 18:00). The time is pinned
+ *  to IST (+05:30) so the deadline is interpreted the same regardless of the
+ *  operator's browser timezone (the team works in Asia/Kolkata). */
 export function computeDueAt(draft: GieDraftTask): string | null {
   if (draft.due_at) return draft.due_at
   if (draft.task_date) {
     const t = draft.due_time && /^\d{2}:\d{2}/.test(draft.due_time) ? draft.due_time.slice(0, 5) : '18:00'
-    const d = new Date(`${draft.task_date}T${t}:00`)
+    const d = new Date(`${draft.task_date}T${t}:00+05:30`)
     return Number.isNaN(d.getTime()) ? null : d.toISOString()
   }
   return null

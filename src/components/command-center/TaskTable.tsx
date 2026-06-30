@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Rocket, Loader2 } from 'lucide-react'
+import { Rocket, Loader2, Search, X } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../ui/table'
 import { Button } from '../ui/button'
 import { DispatchRow } from './DispatchRow'
 import { TrackedRow, trackedStatus } from './TrackedRow'
 import { resolveDraft } from './dispatch'
-import { useDraftTasks, useTrackedTasks, dispatchDraft, type GieDraftTask } from '../../lib/gie'
+import { useDraftTasks, useTrackedTasks, dispatchDraft, type GieDraftTask, type GieTrackedTask } from '../../lib/gie'
 import type { Employee } from '../../types'
+
+type Readiness = 'all' | 'ready' | 'needs'
 
 type Tab = 'dispatch' | 'active' | 'completed' | 'overdue'
 
@@ -39,6 +41,14 @@ export function TaskTable({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState(false)
 
+  // ── Filters (apply across the active tab) ──────────────────────────────────
+  const [search, setSearch] = useState('')
+  const [filterBy, setFilterBy] = useState('')       // 'Assigned by' name
+  const [filterTo, setFilterTo] = useState('')       // assignee employees.id
+  const [filterReady, setFilterReady] = useState<Readiness>('all')  // dispatch tab only
+  const filtersActive = !!(search.trim() || filterBy || filterTo || filterReady !== 'all')
+  const clearFilters = () => { setSearch(''); setFilterBy(''); setFilterTo(''); setFilterReady('all') }
+
   const { data: rawDrafts = [], isLoading: draftsLoading } = useDraftTasks(groupId)
   const { data: tracked = [], isLoading: trackedLoading } = useTrackedTasks()
 
@@ -57,8 +67,9 @@ export function TaskTable({
   }, [rawDrafts])
 
   // Tracked tasks are fetched org-wide; filter to the selected group client-side.
+  // Cancelled tasks (deleted from Command Center) are excluded entirely.
   const groupTracked = useMemo(
-    () => (groupId ? tracked.filter((t) => t.group_id === groupId) : tracked),
+    () => tracked.filter((t) => t.status !== 'cancelled' && (!groupId || t.group_id === groupId)),
     [tracked, groupId],
   )
   const active = useMemo(() => groupTracked.filter((t) => trackedStatus(t) === 'active'), [groupTracked])
@@ -68,9 +79,48 @@ export function TaskTable({
     [groupTracked],
   )
 
+  // Option lists for the dropdowns — drawn from everything in view so they're stable across tabs.
+  const byOptions = useMemo(() => {
+    const s = new Set<string>()
+    for (const d of drafts) { const v = d.assigned_by_name ?? d.on_behalf_of; if (v) s.add(v) }
+    for (const t of groupTracked) { if (t.on_behalf_of) s.add(t.on_behalf_of) }
+    return [...s].sort()
+  }, [drafts, groupTracked])
+
+  const toOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of drafts) { const id = d.suggested_assignee_employee_id; if (id) m.set(id, empNameById[id] ?? '—') }
+    for (const t of groupTracked) { const id = t.tracking?.assignee_employee_id; if (id) m.set(id, empNameById[id] ?? '—') }
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [drafts, groupTracked, empNameById])
+
+  // ── Apply filters ──────────────────────────────────────────────────────────
+  const q = search.trim().toLowerCase()
+  const filteredDrafts = useMemo(() => drafts.filter((d) => {
+    if (q && !(`${d.title ?? ''} ${d.description ?? ''}`.toLowerCase().includes(q))) return false
+    if (filterBy && (d.assigned_by_name ?? d.on_behalf_of ?? '') !== filterBy) return false
+    if (filterTo && (d.suggested_assignee_employee_id ?? '') !== filterTo) return false
+    if (filterReady !== 'all') {
+      const ready = resolveDraft(d, employees).ready
+      if (filterReady === 'ready' && !ready) return false
+      if (filterReady === 'needs' && ready) return false
+    }
+    return true
+  }), [drafts, q, filterBy, filterTo, filterReady, employees])
+
+  const filterTracked = (rows: GieTrackedTask[]) => rows.filter((t) => {
+    const toId = t.tracking?.assignee_employee_id ?? ''
+    const name = toId ? (empNameById[toId] ?? '') : ''
+    if (q && !(`${t.title ?? ''} ${name}`.toLowerCase().includes(q))) return false
+    if (filterBy && (t.on_behalf_of ?? '') !== filterBy) return false
+    if (filterTo && toId !== filterTo) return false
+    return true
+  })
+
+  // Ready rows currently visible (respect the active filters) — drives bulk dispatch.
   const readyDrafts = useMemo(
-    () => drafts.filter((d) => resolveDraft(d, employees).ready),
-    [drafts, employees],
+    () => filteredDrafts.filter((d) => resolveDraft(d, employees).ready),
+    [filteredDrafts, employees],
   )
 
   const toggleSelect = (id: string, next: boolean) =>
@@ -151,6 +201,59 @@ export function TaskTable({
         )}
       </div>
 
+      {/* Filter bar — search + Assigned by + Assigned to (+ readiness on the dispatch tab) */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search task or person…"
+            className="w-full h-8 rounded-lg border border-input pl-7 pr-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          />
+        </div>
+
+        <select
+          value={filterBy}
+          onChange={(e) => setFilterBy(e.target.value)}
+          className="h-8 rounded-lg border border-input px-2 text-xs text-stone-700 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          title="Filter by who assigned it"
+        >
+          <option value="">All assigners</option>
+          {byOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+
+        <select
+          value={filterTo}
+          onChange={(e) => setFilterTo(e.target.value)}
+          className="h-8 rounded-lg border border-input px-2 text-xs text-stone-700 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          title="Filter by assignee"
+        >
+          <option value="">All assignees</option>
+          {toOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+
+        {tab === 'dispatch' && (
+          <select
+            value={filterReady}
+            onChange={(e) => setFilterReady(e.target.value as Readiness)}
+            className="h-8 rounded-lg border border-input px-2 text-xs text-stone-700 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            title="Filter by readiness"
+          >
+            <option value="all">All states</option>
+            <option value="ready">Ready to send</option>
+            <option value="needs">Needs info</option>
+          </select>
+        )}
+
+        {filtersActive && (
+          <button onClick={clearFilters}
+            className="h-8 inline-flex items-center gap-1 rounded-lg px-2 text-xs text-stone-500 hover:text-red-600 hover:bg-stone-100">
+            <X size={13} /> Clear
+          </button>
+        )}
+      </div>
+
       <Table className="table-fixed w-full">
         <TableHeader>
           <TableRow>
@@ -167,8 +270,12 @@ export function TaskTable({
               <TableRow><TableCell colSpan={10} className="p-8 text-center text-xs text-stone-400">
                 No tasks waiting to dispatch. New leadership @mentions land here.
               </TableCell></TableRow>
+            ) : filteredDrafts.length === 0 ? (
+              <TableRow><TableCell colSpan={10} className="p-8 text-center text-xs text-stone-400">
+                No rows match your filters. <button onClick={clearFilters} className="text-amber-700 underline">Clear filters</button>
+              </TableCell></TableRow>
             ) : (
-              drafts.map((d) => (
+              filteredDrafts.map((d) => (
                 <DispatchRow
                   key={d.id}
                   draft={d}
@@ -181,9 +288,12 @@ export function TaskTable({
             )
           ) : (
             (() => {
-              const rows = tab === 'active' ? active : tab === 'completed' ? completed : overdue
+              const base = tab === 'active' ? active : tab === 'completed' ? completed : overdue
+              const rows = filterTracked(base)
               if (rows.length === 0) {
-                return <TableRow><TableCell colSpan={10} className="p-8 text-center text-xs text-stone-400">Nothing here.</TableCell></TableRow>
+                return <TableRow><TableCell colSpan={10} className="p-8 text-center text-xs text-stone-400">
+                  {base.length === 0 ? 'Nothing here.' : <>No rows match your filters. <button onClick={clearFilters} className="text-amber-700 underline">Clear filters</button></>}
+                </TableCell></TableRow>
               }
               return rows.map((t) => <TrackedRow key={t.id} task={t} empNameById={empNameById} />)
             })()

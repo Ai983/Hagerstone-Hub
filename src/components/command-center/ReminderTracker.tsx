@@ -20,7 +20,7 @@ export function ReminderTracker({
     )
   }
 
-  const title = lastReminderAt ? `Last reminder: ${new Date(lastReminderAt).toLocaleString()}` : 'No reminders sent yet'
+  const title = lastReminderAt ? `Last reminder: ${new Date(lastReminderAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST` : 'No reminders sent yet'
 
   return (
     <div className="flex items-center gap-1.5" title={title}>

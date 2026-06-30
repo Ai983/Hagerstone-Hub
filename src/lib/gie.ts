@@ -324,6 +324,27 @@ export async function approveDraft(draftId: string): Promise<void> {
   if (error) throw error
 }
 
+/**
+ * Delete a DISPATCHED task from the operator's view: cancel the underlying
+ * del_tasks row and stop its reminder/penalty tracker. The tracker is halted
+ * FIRST (is_completed + next_reminder_at=null) so a cancelled task can never be
+ * reminded/penalised even if the task update lags. The row then disappears from
+ * the Active/Overdue tabs (the table filters out cancelled tasks).
+ */
+export async function cancelTrackedTask(delTaskId: string, trackingId: string | null): Promise<void> {
+  if (trackingId) {
+    await supabase
+      .from('gie_task_tracking')
+      .update({ is_completed: true, next_reminder_at: null })
+      .eq('id', trackingId)
+  }
+  const { error } = await supabase
+    .from('del_tasks')
+    .update({ status: 'cancelled', reject_reason: 'Cancelled from Command Center', updated_at: new Date().toISOString() })
+    .eq('id', delTaskId)
+  if (error) throw error
+}
+
 /** Inline-edit a still-pending draft from the operator table (assignee / details /
  *  due / points). RLS (gie_drafts_update → is_del_super) gates this. */
 export interface DraftPatch {
