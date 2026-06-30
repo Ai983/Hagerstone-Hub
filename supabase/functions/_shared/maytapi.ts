@@ -22,7 +22,9 @@ const MAYTAPI_GRP_API_KEY = Deno.env.get('MAYTAPI_GRP_API_KEY') ?? ''
 /** Strip non-digits and ensure a single India country code. */
 export function normalizePhone(raw: string): string {
   const digits = (raw ?? '').replace(/\D/g, '')
-  return digits.startsWith('91') ? digits : `91${digits}`
+  // Only skip the prefix if it's already a full 12-digit number (91 + 10-digit mobile).
+  // A 10-digit number that happens to start with "91" must still get the prefix added.
+  return digits.length === 12 && digits.startsWith('91') ? digits : `91${digits}`
 }
 
 export interface WhatsAppResult {

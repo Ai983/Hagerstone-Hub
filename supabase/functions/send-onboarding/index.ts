@@ -52,6 +52,9 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    // Patch email_change to '' — GoTrue crashes on login if this column is NULL
+    // (admin.createUser leaves it NULL; GoTrue expects a non-null string).
+    await supabase.rpc('fix_auth_email_change', { uid: authData.user.id })
     await supabase
       .from('employees')
       .update({ auth_user_id: authData.user.id, must_change_password: false })
