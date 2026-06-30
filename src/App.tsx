@@ -4,10 +4,12 @@ import { Toaster } from 'sonner'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FounderDashboard } from './pages/FounderDashboard'
+import { ProjectSpendDashboard } from './pages/founder/ProjectSpendDashboard'
 import { CommandCenterPage } from './pages/CommandCenterPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { HeadRoute } from './components/HeadRoute'
+import { FounderSpendRoute } from './components/FounderSpendRoute'
 import { DelSuperRoute } from './components/DelSuperRoute'
 import { EmployeesPage } from './pages/admin/EmployeesPage'
 import { AddEmployeePage } from './pages/admin/AddEmployeePage'
@@ -46,6 +48,12 @@ export default function App() {
             <ProtectedRoute>
               <FounderDashboard />
             </ProtectedRoute>
+          } />
+
+          <Route path="/founder/spend" element={
+            <FounderSpendRoute>
+              <ProjectSpendDashboard />
+            </FounderSpendRoute>
           } />
 
           <Route path="/command-center" element={
