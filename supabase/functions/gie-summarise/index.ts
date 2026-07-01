@@ -45,6 +45,15 @@ function normName(s: string): string {
   return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+// True when a person's given (first) name appears as a whole word in `words`.
+// Used to confirm an AI-suggested assignee was ACTUALLY named in a message,
+// rather than inferred from prior context / the rolling summary.
+function nameWrittenIn(fullName: string | null | undefined, words: Set<string>): boolean {
+  if (!fullName) return false
+  const toks = fullName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((t) => t.length >= 3)
+  return toks.length > 0 && words.has(toks[0])
+}
+
 // Decode a Supabase JWT's payload and return its `role` claim (no signature check —
 // verify_jwt=true already validated the signature/issuer at the gateway).
 function jwtRole(token: string): string | null {
@@ -75,7 +84,7 @@ const BRIEF_TOOL = {
       },
       flags: {
         type: 'array',
-        description: 'One entry ONLY for messages where a [LEADERSHIP] member explicitly @mentioned someone (shown as [MENTIONS: Name] in the transcript). Messages without a [MENTIONS:] tag are context only — do NOT flag them. Empty array if no @mention delegations found.',
+        description: 'One entry for each message where a [LEADERSHIP] member makes an action request, instruction, or delegation — whether or not they @mentioned someone. A [MENTIONS: Name] tag names the assignee for certain. Do NOT flag status updates, progress reports, acknowledgements, or questions. Empty array if none.',
         items: {
           type: 'object',
           properties: {
@@ -87,13 +96,13 @@ const BRIEF_TOOL = {
       },
       drafts: {
         type: 'array',
-        description: 'A draft task ONLY for messages where a [LEADERSHIP] member @mentioned someone (shown as [MENTIONS: Name]). Do NOT generate drafts for status reports, updates, or any message without a [MENTIONS:] tag. Empty array if no @mention delegations found.',
+        description: 'A draft task for each clear instruction, request, or delegation from a [LEADERSHIP] member — whether or not they @mentioned someone. Do NOT generate drafts from status reports, progress updates, acknowledgements ("ok"/"done"), or questions, and NEVER from a non-leadership member\'s message. Empty array if none.',
         items: {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Short imperative task title.' },
             description: { type: 'string' },
-            assignee_name: { type: 'string', description: 'Best match from the known-people list, or empty if unclear.' },
+            assignee_name: { type: 'string', description: 'The person to do the task. ONLY set this if the leader @mentioned someone ([MENTIONS: Name]) or explicitly wrote a person’s name in one of the NEW MESSAGES — then use the best match from the known-people list. Do NOT infer the assignee from the rolling summary or prior context. If nobody is explicitly mentioned or named, leave empty — the operator will assign.' },
             role_group: { type: 'string', description: 'Department/role of the assignee if known, else empty.' },
             priority: { type: 'string', enum: ['low', 'medium', 'high'] },
             due_date: { type: 'string', description: 'ISO YYYY-MM-DD if stated/implied, else empty.' },
@@ -208,10 +217,10 @@ serve(async (req) => {
 
     const system =
       `You summarise an internal company WhatsApp work group for leadership. Be concise and strictly factual — never invent facts, names, or commitments. ` +
-      `CRITICAL RULE: Only generate flags and draft tasks for messages where a [LEADERSHIP] member explicitly tagged someone with @mention — these appear as [MENTIONS: Name] in the transcript. ` +
-      `Messages WITHOUT a [MENTIONS:] tag are background context only — include them in the memo and summary but do NOT generate flags or drafts from them. ` +
-      `When drafting tasks, the assignee is always the person named in [MENTIONS: Name]. Choose from this known-people list: ${peopleList || '(none provided)'}. ` +
-      `Respond ONLY by calling the record_brief tool.`
+      `TASK-CREATION RULE: Generate a flag and a draft task for every message where a [LEADERSHIP] member gives a clear instruction, action request, or delegation — WHETHER OR NOT they @mentioned someone. ` +
+      `A [MENTIONS: Name] tag identifies the assignee for certain; if there is no tag but the leader explicitly writes a person's name in the message, use that name. NEVER infer the assignee from the rolling summary or prior context. If no person is @mentioned or named in the NEW MESSAGES, STILL create the task but leave assignee_name empty for the operator to fill. ` +
+      `Do NOT create flags or tasks from status updates, progress reports, acknowledgements ("ok"/"done"/"theek hai"), questions, or general discussion — and NEVER from a non-[LEADERSHIP] member's message, even if it sounds like a commitment. ` +
+      `Choose the assignee from this known-people list: ${peopleList || '(none provided)'}. Respond ONLY by calling the record_brief tool.`
     const user = `PRIOR ROLLING SUMMARY:\n${rolling || '(none)'}\n\nNEW MESSAGES (chronological):\n${transcript}`
 
     let brief: any, usage: any
@@ -231,8 +240,9 @@ serve(async (req) => {
     }).select('id').single()
     if (sErr) { results.push({ group: g.name, error: sErr.message }); continue }
 
-    // Build phone-resolved mention map FIRST — used to gate both flags and drafts.
-    // Only leadership messages with explicit @mentions qualify for flags/tasks.
+    // Phone-resolved @mention map. An @mention pins the assignee with certainty,
+    // but it is NO LONGER required to create a task — a leadership instruction with
+    // no tag still becomes a draft (assignee inferred from text, else left blank).
     const windowMentionIds: string[] = msgs
       .filter((m: any) => m.is_from_leadership && Array.isArray(m.mentioned_employee_ids))
       .flatMap((m: any) => m.mentioned_employee_ids as string[])
@@ -241,22 +251,31 @@ serve(async (req) => {
     const topMentionId = mentionFreq.size
       ? [...mentionFreq.entries()].sort((a, b) => b[1] - a[1])[0][0]
       : null
-    const hasDelegation = mentionFreq.size > 0
+    // The only hard gate now: a [LEADERSHIP] member must have spoken in this window.
+    // Windows with no leadership message can never produce tasks/flags.
+    const hasLeadershipMsg = msgs.some((m: any) => m.is_from_leadership)
 
-    // Deterministic "who asked" + original message — the most recent leadership
-    // message that carries an @mention. Drives the table's Assigned-by + excerpt.
+    // Tokenised text of THIS window's message BODIES (not the rolling summary). Used to
+    // verify an AI-suggested assignee is genuinely named in a message before we trust it.
+    const windowWords = new Set(
+      msgs.map((m: any) => String(m.body ?? m.transcript ?? ''))
+        .join(' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean),
+    )
+
+    // Deterministic "who asked" + original message — prefer the most recent
+    // leadership message carrying an @mention, else the most recent leadership message.
     const leadMsg = [...msgs].reverse().find(
       (m: any) => m.is_from_leadership && Array.isArray(m.mentioned_employee_ids) && m.mentioned_employee_ids.length,
-    )
+    ) ?? [...msgs].reverse().find((m: any) => m.is_from_leadership)
     const assignedByName = leadMsg?.sender_name ?? null
     const assignedByPhone = leadMsg?.sender_phone ?? null
     const sourceExcerpt = leadMsg?.body ?? leadMsg?.transcript ?? null
 
-    // Flags — only when a leadership member explicitly @mentioned someone
+    // Flags — any leadership action request (tagged or not)
     const flags = (Array.isArray(brief.flags) ? brief.flags : [])
       .filter((f: any) => f?.excerpt && String(f.excerpt).trim())
       .slice(0, MAX_FLAGS)
-    if (flags.length && hasDelegation) {
+    if (flags.length && hasLeadershipMsg) {
       await admin.from('gie_flagged_items').insert(flags.map((f: any) => ({
         group_id: g.id, summary_id: sum.id,
         leader_phone: f.leader_phone || assignedByPhone || null,
@@ -264,14 +283,21 @@ serve(async (req) => {
       })))
     }
 
-    // Drafts — only when a leadership member explicitly @mentioned someone
+    // Drafts — any leadership instruction (tagged or not). Untagged ⇒ assignee
+    // inferred from text if possible, else left blank (needs_info) for the operator.
     const drafts = (Array.isArray(brief.drafts) ? brief.drafts : [])
       .filter((d: any) => d?.title && String(d.title).trim())
       .slice(0, MAX_DRAFTS)
-    if (drafts.length && hasDelegation) {
+    if (drafts.length && hasLeadershipMsg) {
       await admin.from('gie_draft_tasks').insert(drafts.map((d: any) => {
-        // 1st priority: phone-resolved mention ID  2nd: Claude's name match  3rd: null
-        const nameMatch = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
+        // Assignee is set ONLY from a hard signal:
+        //   1st: a name the AI returned that is ACTUALLY written in this window's messages
+        //   2nd: a phone-resolved @mention
+        //   else: null (left blank — the operator assigns)
+        // A name the AI merely inferred from prior context / the rolling summary but that
+        // nobody actually wrote is discarded — it does NOT become an assignee.
+        const nameId = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
+        const nameMatch = nameId && nameWrittenIn(empById.get(nameId), windowWords) ? nameId : null
         const assigneeId = nameMatch ?? topMentionId ?? null
         const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(d.due_date ?? '') ? d.due_date : null
         const pts = snapPoints(d.suggested_points)
@@ -288,8 +314,9 @@ serve(async (req) => {
           assigned_by_name:    assignedByName,
           assigned_by_phone:   assignedByPhone,
           source_excerpt:      sourceExcerpt,
-          assignee_confidence: assigneeId ? 'high' : 'low',
-          due_at:              dueDate ? new Date(`${dueDate}T18:00:00`).toISOString() : null,
+          // 'high' = pinned by @mention · 'medium' = named in a message · null = unassigned
+          assignee_confidence: nameMatch ? 'medium' : (assigneeId ? 'high' : null),
+          due_at:              dueDate ? new Date(`${dueDate}T18:00:00+05:30`).toISOString() : null,  // 18:00 IST default
           suggested_points:    pts,
           custom_points:       pts,                                    // prefill the ladder tier (operator can override)
           needs_info:          !assigneeId || !dueDate,
