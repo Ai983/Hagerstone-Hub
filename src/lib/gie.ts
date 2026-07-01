@@ -16,6 +16,31 @@ export interface GieGroup {
   created_at: string
 }
 
+/** Enriched group row from gie_groups_overview() — carries the attention signals
+ *  the picker + Manage Groups panel render (pending drafts, open flags, new msgs). */
+export interface GieGroupOverview {
+  id: string
+  provider_group_id: string
+  name: string | null
+  is_active: boolean
+  is_test: boolean
+  summarise_every_minutes: number
+  last_summarised_at: string | null
+  pending_drafts: number
+  open_flags: number
+  last_message_at: string | null
+  msgs_7d: number
+  has_new: boolean
+}
+
+/** One WhatsApp group as seen on the Maytapi side (for the "add group" picker). */
+export interface MaytapiGroup {
+  id: string
+  name: string | null
+  participants: number | null
+  onboarded: boolean
+}
+
 export interface GieSummary {
   id: string
   group_id: string
@@ -215,6 +240,24 @@ export function useGieGroups() {
   })
 }
 
+const OVERVIEW_KEY = ['gie_groups_overview'] as const
+
+export async function fetchGieGroupsOverview(): Promise<GieGroupOverview[]> {
+  const { data, error } = await supabase.rpc('gie_groups_overview')
+  if (error) throw error
+  return (data ?? []) as GieGroupOverview[]
+}
+
+/** Enriched group list (attention badges + new-message cue). Founder/admin/del_super only. */
+export function useGieGroupsOverview() {
+  return useQuery({
+    queryKey: OVERVIEW_KEY,
+    queryFn: fetchGieGroupsOverview,
+    staleTime: 20_000,
+    refetchInterval: 60_000,
+  })
+}
+
 export function useGroupSummaries(groupId: string | null | undefined) {
   return useQuery({
     queryKey: SUMMARIES_KEY(groupId),
@@ -264,6 +307,35 @@ export async function triggerSummarise(groupId: string): Promise<void> {
   if (data && (data as { error?: string }).error) throw new Error((data as { error: string }).error)
 }
 
+// ── Group management (founder/admin/del_super — server-enforced) ───────────────
+
+/** Activate / deactivate a group. Deactivate = "remove" from the Command Center
+ *  (stops capture, keeps history, reversible). */
+export async function setGroupActive(providerGroupId: string, active: boolean): Promise<void> {
+  const { error } = await supabase.rpc('gie_set_group_active', {
+    p_provider_group_id: providerGroupId, p_active: active,
+  })
+  if (error) throw error
+}
+
+/** Add a group (or re-activate a removed one). */
+export async function addGroup(providerGroupId: string, name: string | null): Promise<void> {
+  const { error } = await supabase.rpc('gie_add_group', {
+    p_provider_group_id: providerGroupId, p_name: name ?? '',
+  })
+  if (error) throw error
+}
+
+/** Live WhatsApp group list from Maytapi (via the admin edge function) — powers
+ *  the "add group" picker with an `onboarded` flag on each. */
+export async function fetchMaytapiGroups(): Promise<MaytapiGroup[]> {
+  const { data, error } = await supabase.functions.invoke('maytapi-list-groups', { body: {} })
+  if (error) throw new Error(error.message)
+  const d = data as { groups?: MaytapiGroup[]; error?: string }
+  if (d?.error) throw new Error(d.error)
+  return d?.groups ?? []
+}
+
 /**
  * Single centralised realtime subscription — call ONCE on the Command Center.
  * Clone of useDelegationPulse(): one channel on the gie_pulse table that the
@@ -278,6 +350,7 @@ export function useGiePulse() {
           { event: 'UPDATE', schema: 'public', table: 'gie_pulse' },
           () => {
             qc.invalidateQueries({ queryKey: GROUPS_KEY })
+            qc.invalidateQueries({ queryKey: OVERVIEW_KEY })
             qc.invalidateQueries({ queryKey: ['gie_summaries'] })
             qc.invalidateQueries({ queryKey: FLAGS_KEY })
             qc.invalidateQueries({ queryKey: DRAFTS_KEY })

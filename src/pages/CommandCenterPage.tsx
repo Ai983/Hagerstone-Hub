@@ -8,8 +8,9 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { Button } from '../components/ui/button'
 import { fetchAllActiveEmployees } from '../lib/delegation'
-import { useGieGroups, useGiePulse, triggerSummarise } from '../lib/gie'
+import { useGieGroupsOverview, useGiePulse, triggerSummarise } from '../lib/gie'
 import { GroupMemoViewer } from '../components/dashboard/gie/GroupMemoViewer'
+import { ManageGroups } from '../components/dashboard/gie/ManageGroups'
 import { FlagQueue } from '../components/dashboard/gie/FlagQueue'
 import { TaskTable } from '../components/command-center/TaskTable'
 import { HeadlineKpis } from '../components/dashboard/founder/HeadlineKpis'
@@ -56,12 +57,20 @@ export function CommandCenterPage() {
   const isFounderAdmin = role === 'founder' || isAdmin
   const allowed = isFounderAdmin || !!employee?.del_super
 
-  const { data: groups = [] } = useGieGroups()
+  const { data: groups = [] } = useGieGroupsOverview()
   const qc = useQueryClient()
   const [groupId, setGroupId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   useEffect(() => {
-    if (!groupId && groups.length > 0) setGroupId(groups[0].id)
+    if (!groupId && groups.length > 0) {
+      // Default to the most actionable active group (drafts > flags > new msgs).
+      const best = groups
+        .filter((g) => g.is_active)
+        .sort((a, b) =>
+          (b.pending_drafts * 100 + b.open_flags * 10 + (b.has_new ? 5 : 0) + (b.msgs_7d > 0 ? 1 : 0)) -
+          (a.pending_drafts * 100 + a.open_flags * 10 + (a.has_new ? 5 : 0) + (a.msgs_7d > 0 ? 1 : 0)))[0]
+      if (best) setGroupId(best.id)
+    }
   }, [groups, groupId])
 
   // Shared lookups — same query key/fn as MyDayPage so the cache stays in sync.
@@ -161,6 +170,9 @@ export function CommandCenterPage() {
             <FlagQueue groupId={groupId} actionedByEmployeeId={employee.id} />
           </div>
         </details>
+
+        {/* Group administration — add / remove / toggle capture (founder/admin/del_super) */}
+        <ManageGroups />
 
         {/* Company snapshot — founder/admin only (del_super coordinators don't see finance) */}
         {isFounderAdmin && (
