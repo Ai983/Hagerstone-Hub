@@ -189,7 +189,17 @@ serve(async (req) => {
   const results: any[] = []
 
   for (const g of due) {
-    const since = g.last_summarised_at ?? '1970-01-01T00:00:00Z'
+    // Serialize per group: a burst of leadership messages fires many concurrent
+    // summarise calls; without this lock they all read the same window before the
+    // cursor advances and each creates duplicate drafts. Callers that can't claim skip.
+    const { data: claimed, error: claimErr } = await admin.rpc('gie_claim_group', { p_group_id: g.id, p_ttl_seconds: 120 })
+    if (claimErr) { results.push({ group: g.name, error: 'claim: ' + claimErr.message }); continue }
+    if (!claimed) { results.push({ group: g.name, skipped: 'locked' }); continue }
+    try {
+    // Re-read the cursor AFTER claiming — a run we serialized behind may have just
+    // advanced last_summarised_at, so the due-list snapshot can be stale.
+    const { data: cur } = await admin.from('gie_groups').select('last_summarised_at').eq('id', g.id).maybeSingle()
+    const since = cur?.last_summarised_at ?? '1970-01-01T00:00:00Z'
     const { data: msgs, error: mErr } = await admin
       .from('gie_raw_messages').select('*')
       .eq('group_id', g.id).gt('sent_at', since)
@@ -327,6 +337,9 @@ serve(async (req) => {
     // Advance cursor only after successful writes → clean retry on failure.
     await admin.from('gie_groups').update({ last_summarised_at: windowEnd }).eq('id', g.id)
     results.push({ group: g.name, messages: msgs.length, flags: flags.length, drafts: drafts.length })
+    } finally {
+      await admin.rpc('gie_release_group', { p_group_id: g.id })
+    }
   }
 
   // One pulse bump → Command Center invalidates + refreshes live.
