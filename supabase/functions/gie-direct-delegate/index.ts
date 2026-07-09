@@ -31,13 +31,19 @@ const GRP_PRODUCT_ID = Deno.env.get('MAYTAPI_GRP_PRODUCT_ID') ?? 'f09cb10a-0037-
 const GRP_PHONE_ID   = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '145466'
 const GRP_API_KEY    = Deno.env.get('MAYTAPI_GRP_API_KEY')    ?? ''
 
+// Only skip the prefix on a full 12-digit number. A bare startsWith('91') check would
+// leave a 10-digit mobile like 9117715416 without its country code.
+function normalizePhone(raw: string): string {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  return digits.length === 12 && digits.startsWith('91') ? digits : `91${digits}`
+}
+
 async function sendToGroup(groupJid: string, assigneePhone: string, message: string) {
   if (!GRP_API_KEY) {
     console.warn('[direct-delegate] MAYTAPI_GRP_API_KEY not set — skipping group WA')
     return false
   }
-  const digits = assigneePhone.replace(/\D/g, '')
-  const waId   = digits.startsWith('91') ? digits : `91${digits}`
+  const waId = normalizePhone(assigneePhone)
   try {
     const res = await fetch(
       `https://api.maytapi.com/api/${GRP_PRODUCT_ID}/${GRP_PHONE_ID}/sendMessage`,
@@ -153,7 +159,7 @@ serve(async (req) => {
 
   // 7 — Group WhatsApp
   const phone = (assignee.phone ?? '').replace(/\D/g, '')
-  const groupMsg = `@${phone.startsWith('91') ? phone : `91${phone}`} — Task assigned: ${title.trim()}`
+  const groupMsg = `@${normalizePhone(phone)} — Task assigned: ${title.trim()}`
   const waOk = grp.provider_group_id && phone
     ? await sendToGroup(grp.provider_group_id, phone, groupMsg)
     : false

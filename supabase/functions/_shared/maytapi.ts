@@ -81,8 +81,9 @@ export async function sendToGroupWhatsApp({
   assigneePhone: string // e.g. "919876543210" — digits only, with country code
   message: string
 }): Promise<WhatsAppResult> {
-  const normPhone = assigneePhone.replace(/\D/g, '')
-  const waId = normPhone.startsWith('91') ? normPhone : `91${normPhone}`
+  // Same rule as normalizePhone — a bare startsWith('91') check would leave a 10-digit
+  // mobile like 9117715416 without its country code.
+  const waId = normalizePhone(assigneePhone)
   return maytapiSend(MAYTAPI_GRP_PRODUCT_ID, MAYTAPI_GRP_PHONE_ID, MAYTAPI_GRP_API_KEY, {
     to_number: groupJid,
     type: 'text',
