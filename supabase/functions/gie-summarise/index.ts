@@ -4,6 +4,12 @@
 // advances last_summarised_at and bumps gie_pulse (realtime). Machine-only: callers
 // must present the service-role key as a bearer (n8n Schedule Trigger does this).
 //
+// AUTO-DISPATCH: when an authorised leader (employees.gie_auto_dispatch — Dhruv /
+// Bhaskar) @mentions exactly ONE person in the message that carries the instruction,
+// that assignment is treated as confirmed. The task is created and WhatsApped to the
+// assignee immediately, with no operator click. Everything else still lands in the
+// Command Center as a pending draft. See autoDispatch() for the full gate.
+//
 // Body (optional): { group_id?: string, force?: boolean }
 //   - group_id: process just one group (used for manual tests)
 //   - force:    ignore the cadence gate and summarise any group with new messages
@@ -54,6 +60,35 @@ function nameWrittenIn(fullName: string | null | undefined, words: Set<string>):
   return toks.length > 0 && words.has(toks[0])
 }
 
+function wordsOf(text: string): Set<string> {
+  return new Set(text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean))
+}
+
+// Guard for auto-send only. Placeholder rows like AI Team (9800000000) and Accounts
+// Hagerstone (9000000001) normalise to real, dialable numbers — auto-WhatsApping one
+// would message a stranger. A human dispatching from the Command Center can see the
+// name and decide; an unattended cron cannot. Requires 10-12 digits, an Indian mobile
+// prefix, and no long run of a repeated digit.
+function isRealMobile(raw: string | null | undefined): boolean {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  const local = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+  if (local.length !== 10) return false
+  if (!/^[6-9]/.test(local)) return false
+  return !/(\d)\1{6,}/.test(local)
+}
+
+// Deadline for an auto-dispatched task whose leader named no date: 18:00 IST today,
+// or 18:00 IST tomorrow if that moment has already passed. Never births an overdue
+// task — the reminder engine anchors R1 on due_at and penalises 500 points after it.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+const DUE_HOUR_IST = 18
+function defaultDue(now = new Date()): { date: string; iso: string } {
+  const ist = new Date(now.getTime() + IST_OFFSET_MS)
+  if (ist.getUTCHours() >= DUE_HOUR_IST) ist.setUTCDate(ist.getUTCDate() + 1)
+  const date = ist.toISOString().slice(0, 10)
+  return { date, iso: new Date(`${date}T${String(DUE_HOUR_IST).padStart(2, '0')}:00:00+05:30`).toISOString() }
+}
+
 // Decode a Supabase JWT's payload and return its `role` claim (no signature check —
 // verify_jwt=true already validated the signature/issuer at the gateway).
 function jwtRole(token: string): string | null {
@@ -102,13 +137,14 @@ const BRIEF_TOOL = {
           properties: {
             title: { type: 'string', description: 'Short imperative task title.' },
             description: { type: 'string' },
+            source_msg_index: { type: 'integer', description: 'REQUIRED. The [#N] index of the single NEW MESSAGE that carries this instruction. Every message is prefixed with its index. This must be the message where the leader actually gave the order — not a nearby reply, acknowledgement, or follow-up. The assignee is resolved from this exact message, so a wrong index sends the task to the wrong person.' },
             assignee_name: { type: 'string', description: 'The person to do the task. ONLY set this if the leader @mentioned someone ([MENTIONS: Name]) or explicitly wrote a person’s name in one of the NEW MESSAGES — then use the best match from the known-people list. Do NOT infer the assignee from the rolling summary or prior context. If nobody is explicitly mentioned or named, leave empty — the operator will assign.' },
             role_group: { type: 'string', description: 'Department/role of the assignee if known, else empty.' },
             priority: { type: 'string', enum: ['low', 'medium', 'high'] },
             due_date: { type: 'string', description: 'ISO YYYY-MM-DD if stated/implied, else empty.' },
             suggested_points: { type: 'integer', description: 'Reward tier for completing this task — MUST be one of 50, 100, 150, 200, 300, 500, 1000, 2000. Pick by effort/size: trivial ack = 50, normal task = 100-200, multi-day or high-stakes = 300-1000.' },
           },
-          required: ['title'],
+          required: ['title', 'source_msg_index'],
         },
       },
     },
@@ -137,6 +173,88 @@ async function callClaude(apiKey: string, system: string, user: string) {
   const block = (data.content ?? []).find((b: any) => b.type === 'tool_use' && b.name === 'record_brief')
   if (!block?.input) throw new Error('Claude returned no record_brief output')
   return { brief: block.input as any, usage: data.usage }
+}
+
+interface AutoCandidate {
+  draftId: string
+  title: string
+  description: string | null
+  roleGroup: string
+  taskDate: string
+  dueAtIso: string
+  points: number
+  leader: { name: string; authUserId: string }
+  assignee: { employeeId: string; authUserId: string; phone: string }
+}
+
+/**
+ * Create + send a task that a director confirmed by @mentioning exactly one person.
+ *
+ * Claims the draft FIRST (pending → approved, guarded). Only the claimer proceeds, so
+ * a retry or a racing operator can never create a second task or send a second
+ * WhatsApp — a duplicate ping to a director's assignee is worse than a lost one.
+ * If the task insert then fails we hand the draft back as pending for manual review.
+ */
+// deno-lint-ignore no-explicit-any
+async function autoDispatch(admin: any, c: AutoCandidate, serviceKey: string): Promise<boolean> {
+  const { data: claimed } = await admin
+    .from('gie_draft_tasks')
+    .update({ status: 'approved', auto_dispatched_at: new Date().toISOString() })
+    .eq('id', c.draftId).eq('status', 'pending')
+    .select('id').maybeSingle()
+  if (!claimed) return false
+
+  const { data: task, error: taskErr } = await admin.from('del_tasks').insert({
+    title: c.title,
+    description: c.description,
+    role_group: c.roleGroup,
+    assigned_to: c.assignee.authUserId,
+    assigned_by: c.leader.authUserId,
+    task_date: c.taskDate,
+    due_time: `${String(DUE_HOUR_IST).padStart(2, '0')}:00`,
+    custom_points: c.points,
+    on_behalf_of: c.leader.name,
+    status: 'assigned',
+  }).select('id').single()
+
+  if (taskErr || !task) {
+    console.error('[auto-dispatch] del_tasks insert failed — returning draft to review', taskErr)
+    await admin.from('gie_draft_tasks')
+      .update({ status: 'pending', auto_dispatched_at: null })
+      .eq('id', c.draftId)
+    return false
+  }
+
+  await admin.from('gie_draft_tasks')
+    .update({ approved_task_id: task.id })
+    .eq('id', c.draftId)
+
+  // Reminder/penalty tracker — R1 fires at due_at, same anchor the Dispatch button uses.
+  await admin.from('gie_task_tracking').insert({
+    del_task_id: task.id,
+    draft_id: c.draftId,
+    assignee_employee_id: c.assignee.employeeId,
+    assignee_phone: c.assignee.phone,
+    due_at: c.dueAtIso,
+    task_points: c.points,
+    next_reminder_at: c.dueAtIso,
+  })
+
+  // The actual WhatsApp. del-notify-assign owns the message template and the
+  // del_notifications row; it accepts a service-role bearer and derives the sender
+  // from del_tasks.assigned_by. Awaited — a fire-and-forget fetch dies with the isolate.
+  try {
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/del-notify-assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+      body: JSON.stringify({ task_id: task.id }),
+    })
+    if (!res.ok) console.error('[auto-dispatch] notify failed', task.id, res.status, await res.text().catch(() => ''))
+  } catch (e) {
+    // Task exists and is visible in the portal; the reminder engine will chase it.
+    console.error('[auto-dispatch] notify threw', task.id, String(e))
+  }
+  return true
 }
 
 serve(async (req) => {
@@ -180,11 +298,17 @@ serve(async (req) => {
 
   // ── Known people (for assignee grounding + name→id resolution) ──────────────────
   const { data: emps } = await admin
-    .from('employees').select('id, name, role')
+    .from('employees').select('id, name, role, phone, auth_user_id, gie_auto_dispatch')
     .eq('is_active', true).is('points_alias_of', null)
   const peopleList = (emps ?? []).map((e: any) => `${e.name} (${e.role})`).join(', ')
   const empByName = new Map((emps ?? []).map((e: any) => [normName(e.name), e.id]))
   const empById  = new Map((emps ?? []).map((e: any) => [e.id, e.name]))
+  const empRow   = new Map((emps ?? []).map((e: any) => [e.id, e]))
+
+  // Directors whose @mention IS the approval. NOT the same set as is_from_leadership,
+  // which also covers heads and the group's own bot number.
+  const autoAllowed = Deno.env.get('GIE_AUTO_DISPATCH') !== 'off'
+  const autoLeaders = new Set((emps ?? []).filter((e: any) => e.gie_auto_dispatch).map((e: any) => e.id))
 
   const results: any[] = []
 
@@ -214,7 +338,10 @@ serve(async (req) => {
 
     const windowStart = msgs[0].sent_at
     const windowEnd = msgs[msgs.length - 1].sent_at
-    const transcript = msgs.map((m: any) => {
+    // Each line is prefixed with [#i] — its index into `msgs`. Drafts must cite the
+    // index of the message they came from (source_msg_index) so the assignee can be
+    // resolved from that ONE message rather than from everyone tagged in the window.
+    const transcript = msgs.map((m: any, i: number) => {
       const who = m.sender_name ?? m.sender_phone ?? 'Unknown'
       const lead = m.is_from_leadership ? ' [LEADERSHIP]' : ''
       const txt = m.body ?? m.transcript ?? `(${m.msg_type ?? 'non-text'})`
@@ -222,7 +349,7 @@ serve(async (req) => {
       const mentionIds: string[] = Array.isArray(m.mentioned_employee_ids) ? m.mentioned_employee_ids : []
       const mentionNames = mentionIds.map((id: string) => empById.get(id)).filter(Boolean).join(', ')
       const mentionTag = mentionNames ? ` [MENTIONS: ${mentionNames}]` : ''
-      return `${who}${lead}${mentionTag}: ${txt}`
+      return `[#${i}] ${who}${lead}${mentionTag}: ${txt}`
     }).join('\n')
 
     const system =
@@ -230,6 +357,7 @@ serve(async (req) => {
       `TASK-CREATION RULE: Generate a flag and a draft task for every message where a [LEADERSHIP] member gives a clear instruction, action request, or delegation — WHETHER OR NOT they @mentioned someone. ` +
       `A [MENTIONS: Name] tag identifies the assignee for certain; if there is no tag but the leader explicitly writes a person's name in the message, use that name. NEVER infer the assignee from the rolling summary or prior context. If no person is @mentioned or named in the NEW MESSAGES, STILL create the task but leave assignee_name empty for the operator to fill. ` +
       `Do NOT create flags or tasks from status updates, progress reports, acknowledgements ("ok"/"done"/"theek hai"), questions, or general discussion — and NEVER from a non-[LEADERSHIP] member's message, even if it sounds like a commitment. ` +
+      `Every message is prefixed with an index like [#4]. For each draft you MUST set source_msg_index to the index of the one message that carries that instruction — a task tagged to the wrong message is delivered to the wrong person. ` +
       `Choose the assignee from this known-people list: ${peopleList || '(none provided)'}. Respond ONLY by calling the record_brief tool.`
     const user = `PRIOR ROLLING SUMMARY:\n${rolling || '(none)'}\n\nNEW MESSAGES (chronological):\n${transcript}`
 
@@ -298,45 +426,107 @@ serve(async (req) => {
     const drafts = (Array.isArray(brief.drafts) ? brief.drafts : [])
       .filter((d: any) => d?.title && String(d.title).trim())
       .slice(0, MAX_DRAFTS)
+    const autoQueue: AutoCandidate[] = []
     if (drafts.length && hasLeadershipMsg) {
-      await admin.from('gie_draft_tasks').insert(drafts.map((d: any) => {
-        // Assignee is set ONLY from a hard signal:
-        //   1st: a name the AI returned that is ACTUALLY written in this window's messages
-        //   2nd: a phone-resolved @mention
-        //   else: null (left blank — the operator assigns)
-        // A name the AI merely inferred from prior context / the rolling summary but that
-        // nobody actually wrote is discarded — it does NOT become an assignee.
+      const rows = drafts.map((d: any) => {
+        // The ONE message this instruction came from. Everything below is resolved
+        // against it — a window-wide @mention scan would stamp the most-tagged person
+        // onto every draft in the batch, including ones meant for someone else.
+        const idx = Number.isInteger(d.source_msg_index) ? d.source_msg_index : -1
+        const src = idx >= 0 && idx < msgs.length ? msgs[idx] : null
+
+        // A tag from a leader on THAT message. Exactly one tagged person = unambiguous;
+        // two or more and we cannot tell who owns the task, so a human decides.
+        const srcMentions: string[] = src?.is_from_leadership && Array.isArray(src.mentioned_employee_ids)
+          ? (src.mentioned_employee_ids as string[]).filter((id) => empById.has(id))
+          : []
+        const pinnedId = new Set(srcMentions).size === 1 ? srcMentions[0] : null
+
+        // Fallbacks, weakest last. A name the AI merely inferred from prior context /
+        // the rolling summary but that nobody actually wrote is discarded.
         const nameId = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
-        const nameMatch = nameId && nameWrittenIn(empById.get(nameId), windowWords) ? nameId : null
-        const assigneeId = nameMatch ?? topMentionId ?? null
+        const namedInSrc = nameId && src && nameWrittenIn(empById.get(nameId), wordsOf(String(src.body ?? src.transcript ?? ''))) ? nameId : null
+        const namedInWindow = nameId && nameWrittenIn(empById.get(nameId), windowWords) ? nameId : null
+
+        const assigneeId = pinnedId ?? namedInSrc ?? namedInWindow ?? topMentionId ?? null
+        // 'high' = tagged by a leader in this very message — the only tier we auto-send.
+        // 'medium' = named in that message · 'low' = guessed from elsewhere in the window.
+        const confidence = pinnedId ? 'high' : namedInSrc ? 'medium' : assigneeId ? 'low' : null
+
         const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(d.due_date ?? '') ? d.due_date : null
         const pts = snapPoints(d.suggested_points)
+        const draftId = crypto.randomUUID()
+
+        // ── Auto-dispatch gate. Every clause must hold, or it stays a pending draft. ──
+        const leader = src?.sender_employee_id ? empRow.get(src.sender_employee_id) : null
+        const assignee = assigneeId ? empRow.get(assigneeId) : null
+        const willAuto = !!(
+          autoAllowed && g.auto_dispatch &&          // both kill switches off
+          confidence === 'high' &&                   // a tag, on this message
+          leader && autoLeaders.has(leader.id) &&    // ...from Dhruv or Bhaskar
+          leader.auth_user_id &&                     // we can attribute the task to them
+          assignee?.auth_user_id && isRealMobile(assignee.phone) && // reachable, not a placeholder
+          assignee.auth_user_id !== leader.auth_user_id  // never self-assign (notify skips those)
+        )
+
+        // A stated deadline, else 18:00 IST today/tomorrow — but only auto-sent tasks
+        // get that fallback. A draft awaiting review keeps a null date so the operator
+        // still sees 'needs info' and picks a real one.
+        const due = dueDate
+          ? { date: dueDate, iso: new Date(`${dueDate}T18:00:00+05:30`).toISOString() }
+          : willAuto ? defaultDue() : null
+
+        if (willAuto) {
+          autoQueue.push({
+            draftId,
+            title: String(d.title).trim(),
+            description: d.description || null,
+            roleGroup: d.role_group || assignee.role,   // del_tasks.role_group is NOT NULL
+            taskDate: due!.date,
+            dueAtIso: due!.iso,
+            points: pts,
+            leader: { name: src.sender_name ?? leader.name, authUserId: leader.auth_user_id },
+            assignee: { employeeId: assignee.id, authUserId: assignee.auth_user_id, phone: assignee.phone },
+          })
+        }
+
         return {
+          id: draftId,
           group_id: g.id, summary_id: sum.id,
           title: String(d.title).trim(),
           description: d.description || null,
           suggested_assignee_employee_id: assigneeId,
           role_group: d.role_group || null,
-          task_date: dueDate,
-          status: 'pending',
+          task_date: due?.date ?? null,
+          status: 'pending',   // autoDispatch() flips this to 'approved' below
           // ── v2 operator-table enrichment ──
-          on_behalf_of:        assignedByName,                         // originating leader
-          assigned_by_name:    assignedByName,
-          assigned_by_phone:   assignedByPhone,
-          source_excerpt:      sourceExcerpt,
-          // 'high' = pinned by @mention · 'medium' = named in a message · null = unassigned
-          assignee_confidence: nameMatch ? 'medium' : (assigneeId ? 'high' : null),
-          due_at:              dueDate ? new Date(`${dueDate}T18:00:00+05:30`).toISOString() : null,  // 18:00 IST default
+          on_behalf_of:        src?.sender_name ?? assignedByName,     // originating leader
+          assigned_by_name:    src?.sender_name ?? assignedByName,
+          assigned_by_phone:   src?.sender_phone ?? assignedByPhone,
+          source_excerpt:      src?.body ?? src?.transcript ?? sourceExcerpt,
+          source_raw_message_id: src?.id ?? null,
+          assignee_confidence: confidence,
+          due_at:              due?.iso ?? null,                       // 18:00 IST default
           suggested_points:    pts,
           custom_points:       pts,                                    // prefill the ladder tier (operator can override)
-          needs_info:          !assigneeId || !dueDate,
+          needs_info:          !willAuto && (!assigneeId || !dueDate),
         }
-      }))
+      })
+
+      const { error: dErr } = await admin.from('gie_draft_tasks').insert(rows)
+      if (dErr) { results.push({ group: g.name, error: dErr.message }); continue }
+    }
+
+    // Confirmed by a director's @mention → create the task and WhatsApp it now.
+    // Runs inside the per-group lock, so no operator can race us to the same draft.
+    let autoSent = 0
+    for (const c of autoQueue) {
+      if (await autoDispatch(admin, c, serviceKey)) autoSent++
     }
 
     // Advance cursor only after successful writes → clean retry on failure.
     await admin.from('gie_groups').update({ last_summarised_at: windowEnd }).eq('id', g.id)
-    results.push({ group: g.name, messages: msgs.length, flags: flags.length, drafts: drafts.length })
+    results.push({ group: g.name, messages: msgs.length, flags: flags.length, drafts: drafts.length, auto_sent: autoSent })
     } finally {
       await admin.rpc('gie_release_group', { p_group_id: g.id })
     }

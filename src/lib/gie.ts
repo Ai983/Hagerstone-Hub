@@ -97,10 +97,18 @@ export interface GieDraftTask extends WithGroupName {
   assigned_by_name: string | null      // the leader who sent the ask (deterministic)
   assigned_by_phone: string | null
   source_excerpt: string | null        // the original WhatsApp message
-  assignee_confidence: string | null   // 'high' | 'low' | null
+  source_raw_message_id: string | null // the message the assignee was resolved from
+  /** 'high'   — a director @mentioned them in the source message (auto-dispatched)
+   *  'medium' — their name was written in the source message
+   *  'low'    — guessed from elsewhere in the window; always needs a human
+   *  null     — unassigned */
+  assignee_confidence: string | null
   due_at: string | null                // timestamptz when stated/implied
   suggested_points: number | null      // AI-suggested ladder value
   needs_info: boolean
+  /** Set when the task was created + WhatsApped with no operator click. Such drafts
+   *  are already status='approved', so they never appear in the Dispatch queue. */
+  auto_dispatched_at: string | null
 }
 
 /** A dispatched task as the operator sees it: del_tasks joined to its gie_task_tracking. */

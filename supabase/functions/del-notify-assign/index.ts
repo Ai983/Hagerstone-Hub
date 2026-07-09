@@ -21,6 +21,18 @@ function json(body: unknown, status = 200) {
   })
 }
 
+/** Decode a Supabase JWT's `role` claim. No signature check — verify_jwt=true already
+ *  validated it at the gateway. */
+function jwtRole(token: string): string | null {
+  try {
+    const p = token.split('.')[1]
+    if (!p) return null
+    return (JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/'))).role as string) ?? null
+  } catch {
+    return null
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -30,21 +42,21 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // ── 1. Verify caller ───────────────────────────────────────────────────────
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) return json({ error: 'Unauthorized' }, 401)
+  const bearer = authHeader.replace('Bearer ', '').trim()
+  const isService = jwtRole(bearer) === 'service_role'
 
-  const { data: { user }, error: authErr } =
-    await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
-  if (authErr || !user) return json({ error: 'Unauthorized' }, 401)
-
-  const { data: caller } = await supabase
-    .from('employees')
-    .select('name, role, is_head, is_active, del_super')
-    .eq('auth_user_id', user.id)
-    .eq('is_active', true)
-    .single()
-  if (!caller) return json({ error: 'Forbidden' }, 403)
+  // ── 1. Verify caller — a logged-in user, unless this is a machine call ─────
+  // gie-summarise auto-dispatches director-@mentioned tasks from a cron with no user
+  // session. In that case the sender is whoever del_tasks.assigned_by says it is, so
+  // the task row (written under service-role) is the authority. Resolved after load.
+  let user: { id: string } | null = null
+  if (!isService) {
+    const { data: { user: u }, error: authErr } = await supabase.auth.getUser(bearer)
+    if (authErr || !u) return json({ error: 'Unauthorized' }, 401)
+    user = u
+  }
 
   // ── 2. Parse input ───────────────────────────────────────────────────────
   const { task_id } = await req.json()
@@ -58,13 +70,27 @@ serve(async (req) => {
     .single()
   if (!task) return json({ error: 'Task not found' }, 404)
 
-  // Only notify head/founder/del_super → other-employee assignments
+  // The person the notification is FROM: the caller, or for machine calls the
+  // assigner recorded on the task.
+  const senderUid = isService ? task.assigned_by : user!.id
+  const { data: caller } = await supabase
+    .from('employees')
+    .select('name, role, is_head, is_active, del_super, gie_auto_dispatch')
+    .eq('auth_user_id', senderUid)
+    .eq('is_active', true)
+    .single()
+  if (!caller) return json({ error: 'Forbidden' }, 403)
+
+  // Only notify head/founder/del_super → other-employee assignments. Directors who can
+  // auto-dispatch from WhatsApp count too: Bhaskar is role='management' with is_head
+  // false, so without this his @mentioned tasks would be created and never notified.
   const isGlobal = caller.role === 'founder' || caller.role === 'admin' || caller.del_super === true
   const isHead   = caller.is_head === true
-  if (!isGlobal && !isHead) {
+  const isDirector = caller.gie_auto_dispatch === true
+  if (!isGlobal && !isHead && !isDirector) {
     return json({ skipped: true, reason: 'caller is not a head/founder' })
   }
-  if (task.assigned_to === user.id) {
+  if (task.assigned_to === senderUid) {
     return json({ skipped: true, reason: 'self-assigned — no notification' })
   }
 
