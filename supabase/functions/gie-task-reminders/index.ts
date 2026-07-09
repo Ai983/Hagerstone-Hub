@@ -11,6 +11,11 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// Use the SHARED sender. This file used to inline its own copy whose normalizePhone
+// read `digits.startsWith('91')` — so a 10-digit mobile that merely begins with 91
+// (e.g. 9117715416) was mistaken for a number that already carried the country code
+// and was dialled without one. The shared helper checks length === 12 instead.
+import { sendWhatsApp } from '../_shared/maytapi.ts'
 
 const STEP_MS = 24 * 60 * 60 * 1000   // 24h between reminders
 const PENALTY_POINTS = 500
@@ -24,40 +29,6 @@ const corsHeaders = {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-}
-
-// ── Maytapi 1:1 send (mirrors del-verify-task/maytapi.ts) ──────────────────────
-const MAYTAPI_PRODUCT_ID = Deno.env.get('MAYTAPI_PRODUCT_ID') ?? 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
-const MAYTAPI_PHONE_ID = Deno.env.get('MAYTAPI_PHONE_ID') ?? '46821'
-const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY') ?? ''
-
-function normalizePhone(raw: string): string {
-  const digits = (raw ?? '').replace(/\D/g, '')
-  return digits.startsWith('91') ? digits : `91${digits}`
-}
-
-async function sendWhatsApp(phone: string, message: string): Promise<{ ok: boolean; msgId: string | null }> {
-  if (!MAYTAPI_API_KEY) { console.error('[maytapi] MAYTAPI_API_KEY not set'); return { ok: false, msgId: null } }
-  try {
-    const res = await fetch(
-      `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
-        body: JSON.stringify({ to_number: normalizePhone(phone), type: 'text', message }),
-      },
-    )
-    let body: Record<string, unknown> | null = null
-    try { body = await res.json() } catch { /* non-JSON */ }
-    const ok = res.ok && body?.success === true
-    const data = (body?.data ?? null) as Record<string, unknown> | string | null
-    const msgId = (data && typeof data === 'object' ? (data.msgId ?? data.msg_id ?? data.id) : (typeof data === 'string' ? data : null)) as string | null ?? null
-    if (!ok) console.error('[maytapi] send failed', { status: res.status, body })
-    return { ok, msgId }
-  } catch (e) {
-    console.error('[maytapi] threw', String(e))
-    return { ok: false, msgId: null }
-  }
 }
 
 // ── Period helpers (match del-submit-task so the ledger lands in the right buckets) ──
@@ -133,19 +104,30 @@ serve(async (req) => {
         continue
       }
 
-      // 2. Due yet?
+      // 2. Due yet?  (next_reminder_at = null means "never remind" — see the backlog
+      //    silencing migration; those rows stay open but are not chased.)
       if (!r.next_reminder_at || new Date(r.next_reminder_at).getTime() > now.getTime()) continue
-      if (!r.assignee_phone) { errors.push({ id: r.id, error: 'no assignee phone' }); continue }
 
-      // resolve assignee display name
+      // resolve assignee display name + a phone if the tracker is missing one
       const { data: emp } = await admin.from('employees')
-        .select('name').eq('auth_user_id', task.assigned_to).maybeSingle()
+        .select('name, phone').eq('auth_user_id', task.assigned_to).maybeSingle()
       const name = emp?.name ?? 'Team'
+
+      // The tracker's phone is a snapshot taken at dispatch; fall back to the employee
+      // record. With neither, we can never reach them — stop instead of re-erroring on
+      // every hourly run forever, and leave a breadcrumb for whoever fixes the row.
+      const phone = r.assignee_phone || emp?.phone || null
+      if (!phone) {
+        await admin.from('gie_task_tracking').update({ next_reminder_at: null }).eq('id', r.id)
+        errors.push({ id: r.id, error: 'no assignee phone — reminders stopped' })
+        continue
+      }
+
       const nextLevel = (r.reminder_count ?? 0) + 1
 
       if (nextLevel <= 3) {
         // ── R1 / R2 / R3 ──
-        const sent = await sendWhatsApp(r.assignee_phone, reminderText(name, task.title, nextLevel, hubBase))
+        const sent = await sendWhatsApp({ phone, message: reminderText(name, task.title, nextLevel, hubBase) })
         await admin.from('gie_task_tracking').update({
           reminder_count: nextLevel,
           last_reminder_at: nowIso,
@@ -185,7 +167,7 @@ serve(async (req) => {
           penalty_points: -PENALTY_POINTS,
           next_reminder_at: null,        // stop — idempotency via penalty_applied + unique(del_task_id)
         }).eq('id', r.id)
-        const sent = await sendWhatsApp(r.assignee_phone, penaltyText(name, task.title, hubBase))
+        const sent = await sendWhatsApp({ phone, message: penaltyText(name, task.title, hubBase) })
         await admin.from('del_notifications').insert({
           task_id: task.id, recipient_uid: task.assigned_to, channel: 'whatsapp',
           status: sent.ok ? 'sent' : 'failed', attempts: 1, provider_msg_id: sent.msgId,
