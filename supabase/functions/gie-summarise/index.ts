@@ -332,13 +332,31 @@ serve(async (req) => {
     if (mErr) { results.push({ group: g.name, error: mErr.message }); continue }
     if (!msgs || msgs.length === 0) { results.push({ group: g.name, skipped: 'no new messages' }); continue }
 
+    const windowStart = msgs[0].sent_at
+    const windowEnd = msgs[msgs.length - 1].sent_at
+
+    // Nothing downstream can fire without a [LEADERSHIP] message — flags, drafts and
+    // auto-dispatch all sit behind this same condition. Asking Claude first and then
+    // discarding its answer was roughly half of GIE's Anthropic spend.
+    const hasLeadershipMsg = msgs.some((m: any) => m.is_from_leadership)
+    if (!hasLeadershipMsg) {
+      // Hold the cursor so this chatter stays in the window. When a leader finally
+      // speaks, one call summarises it WITH the discussion that led up to the order —
+      // advancing here would leave "go ahead with that" with no antecedent.
+      //
+      // Exception: a full page means a leader may be sitting just past the limit and
+      // we would never read far enough to see them. Drop this page and move on. Safe
+      // by construction — had a leader been inside it, we would not be in this branch.
+      const atCap = msgs.length >= MAX_MESSAGES
+      if (atCap) await admin.from('gie_groups').update({ last_summarised_at: windowEnd }).eq('id', g.id)
+      results.push({ group: g.name, messages: msgs.length, skipped: 'no leadership message', cursor_advanced: atCap })
+      continue
+    }
+
     const { data: lastSum } = await admin
       .from('gie_summaries').select('rolling_summary')
       .eq('group_id', g.id).order('window_end', { ascending: false }).limit(1).maybeSingle()
     const rolling = lastSum?.rolling_summary ?? ''
-
-    const windowStart = msgs[0].sent_at
-    const windowEnd = msgs[msgs.length - 1].sent_at
     // Each line is prefixed with [#i] — its index into `msgs`. Drafts must cite the
     // index of the message they came from (source_msg_index) so the assignee can be
     // resolved from that ONE message rather than from everyone tagged in the window.
@@ -390,10 +408,6 @@ serve(async (req) => {
     const topMentionId = mentionFreq.size
       ? [...mentionFreq.entries()].sort((a, b) => b[1] - a[1])[0][0]
       : null
-    // The only hard gate now: a [LEADERSHIP] member must have spoken in this window.
-    // Windows with no leadership message can never produce tasks/flags.
-    const hasLeadershipMsg = msgs.some((m: any) => m.is_from_leadership)
-
     // Tokenised text of THIS window's message BODIES (not the rolling summary). Used to
     // verify an AI-suggested assignee is genuinely named in a message before we trust it.
     const windowWords = new Set(
@@ -414,7 +428,7 @@ serve(async (req) => {
     const flags = (Array.isArray(brief.flags) ? brief.flags : [])
       .filter((f: any) => f?.excerpt && String(f.excerpt).trim())
       .slice(0, MAX_FLAGS)
-    if (flags.length && hasLeadershipMsg) {
+    if (flags.length) {
       await admin.from('gie_flagged_items').insert(flags.map((f: any) => ({
         group_id: g.id, summary_id: sum.id,
         leader_phone: f.leader_phone || assignedByPhone || null,
@@ -428,7 +442,7 @@ serve(async (req) => {
       .filter((d: any) => d?.title && String(d.title).trim())
       .slice(0, MAX_DRAFTS)
     const autoQueue: AutoCandidate[] = []
-    if (drafts.length && hasLeadershipMsg) {
+    if (drafts.length) {
       const rows = drafts.map((d: any) => {
         // The ONE message this instruction came from. Everything below is resolved
         // against it — a window-wide @mention scan would stamp the most-tagged person
