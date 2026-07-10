@@ -37,15 +37,17 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  )
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceKey)
 
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) return json({ error: 'Unauthorized' }, 401)
   const bearer = authHeader.replace('Bearer ', '').trim()
-  const isService = jwtRole(bearer) === 'service_role'
+  // Match the key by value as well as by JWT claim. Supabase's newer secret keys
+  // (sb_secret_…) are opaque, not JWTs, so jwtRole() returns null for them and the
+  // service branch was skipped — every auto-dispatched task 401'd here and the
+  // assignee was never notified, silently.
+  const isService = bearer === serviceKey || jwtRole(bearer) === 'service_role'
 
   // ── 1. Verify caller — a logged-in user, unless this is a machine call ─────
   // gie-summarise auto-dispatches director-@mentioned tasks from a cron with no user

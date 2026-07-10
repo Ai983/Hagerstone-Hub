@@ -269,7 +269,8 @@ serve(async (req) => {
   // Auth: accept EITHER the service_role key (n8n Schedule / cron) OR a logged-in
   // founder / admin / del_super user (the Command Center "Refresh" button).
   const bearer = (req.headers.get('Authorization') ?? '').replace('Bearer ', '').trim()
-  let authorized = jwtRole(bearer) === 'service_role'
+  // Compare by value too — newer Supabase secret keys are opaque, not JWTs.
+  let authorized = bearer === serviceKey || jwtRole(bearer) === 'service_role'
   if (!authorized && bearer) {
     const { data: { user } } = await admin.auth.getUser(bearer)
     if (user) {
