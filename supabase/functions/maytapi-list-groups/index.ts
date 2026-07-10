@@ -25,7 +25,7 @@ function jwtRole(t: string): string | null {
 }
 
 const PID   = Deno.env.get('MAYTAPI_GRP_PRODUCT_ID') ?? 'f09cb10a-0037-4e1f-8895-ee7a607077b4'
-const PHONE = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '145466'
+const PHONE = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '141590'
 const KEY   = Deno.env.get('MAYTAPI_GRP_API_KEY')    ?? ''
 const GRP_NUMBER = '918882979328'  // maytapi_phone stored on gie_groups rows
 const BRAND = /^\s*(hsipl|internal[- ])/i

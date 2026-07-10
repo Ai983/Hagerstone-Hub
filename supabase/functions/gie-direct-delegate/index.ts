@@ -28,7 +28,7 @@ function jwtRole(token: string): string | null {
 
 // ── Inline Maytapi group-send (avoids _shared import path issues) ──────────
 const GRP_PRODUCT_ID = Deno.env.get('MAYTAPI_GRP_PRODUCT_ID') ?? 'f09cb10a-0037-4e1f-8895-ee7a607077b4'
-const GRP_PHONE_ID   = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '145466'
+const GRP_PHONE_ID   = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '141590'
 const GRP_API_KEY    = Deno.env.get('MAYTAPI_GRP_API_KEY')    ?? ''
 
 // Only skip the prefix on a full 12-digit number. A bare startsWith('91') check would

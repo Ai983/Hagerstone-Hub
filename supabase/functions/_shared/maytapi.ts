@@ -8,7 +8,7 @@
 //
 // Two phone contexts:
 //   MAYTAPI_*     — business number (46821) for personal task notifications
-//   MAYTAPI_GRP_* — Ma'am's number (145466) for group messages + @mentions
+//   MAYTAPI_GRP_* — Ma'am's number (141590) for group messages + @mentions
 
 const MAYTAPI_PRODUCT_ID = Deno.env.get('MAYTAPI_PRODUCT_ID') ?? 'b8cce1b9-0f9f-4aef-994c-d232716471f0'
 const MAYTAPI_PHONE_ID = Deno.env.get('MAYTAPI_PHONE_ID') ?? '46821'
@@ -16,7 +16,9 @@ const MAYTAPI_API_KEY = Deno.env.get('MAYTAPI_API_KEY') ?? ''
 
 // Group-send credentials — Ma'am's number, which is a member of all HSIPL groups.
 const MAYTAPI_GRP_PRODUCT_ID = Deno.env.get('MAYTAPI_GRP_PRODUCT_ID') ?? 'f09cb10a-0037-4e1f-8895-ee7a607077b4'
-const MAYTAPI_GRP_PHONE_ID = Deno.env.get('MAYTAPI_GRP_PHONE_ID') ?? '145466'
+// Phone 141590 holds the live 918882979328 session. Slot 145466 is an empty sandbox
+// slot stuck on a QR screen — pointing here silently sends nothing.
+const MAYTAPI_GRP_PHONE_ID = Deno.env.get('MAYTAPI_GRP_PHONE_ID') ?? '141590'
 const MAYTAPI_GRP_API_KEY = Deno.env.get('MAYTAPI_GRP_API_KEY') ?? ''
 
 /** Strip non-digits and ensure a single India country code. */
@@ -69,7 +71,7 @@ async function maytapiSend(
 
 /**
  * Send a WhatsApp message to a GROUP chat from Ma'am's number.
- * Uses MAYTAPI_GRP_* credentials (phone 145466 — 918882979328, a member of all HSIPL groups).
+ * Uses MAYTAPI_GRP_* credentials (phone 141590 — 918882979328, a member of all HSIPL groups).
  * Passes mentionedList so WhatsApp renders the @tag properly.
  */
 export async function sendToGroupWhatsApp({
