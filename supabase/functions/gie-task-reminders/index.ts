@@ -94,11 +94,22 @@ serve(async (req) => {
   for (const r of (rows ?? []) as any[]) {
     const task = r.task
     try {
-      // 1. Reconcile completion — assignee submitted ⇒ stop reminders forever.
-      const done = !!task.submitted_at || ['submitted', 'under_review', 'completed'].includes(task.status)
+      // 1. Reconcile — stop reminders once the task leaves the assignee's hands.
+      //
+      // status is the ONLY authority here. submitted_at must NOT be trusted on its own:
+      // del-verify-task rejects a task by putting status back to 'in_progress' while
+      // LEAVING submitted_at set. Treating that as done meant a rejected task — real,
+      // open work the manager sent back — was never chased again.
+      //
+      // 'cancelled' stops too: the work is off the table, so don't remind or penalise.
+      const done = ['submitted', 'under_review', 'completed', 'cancelled'].includes(task.status)
       if (done) {
         await admin.from('gie_task_tracking')
-          .update({ is_completed: true, completed_at: task.submitted_at ?? nowIso })
+          .update({
+            is_completed: true,
+            completed_at: task.status === 'cancelled' ? nowIso : (task.submitted_at ?? nowIso),
+            next_reminder_at: null,
+          })
           .eq('id', r.id)
         reconciled.push(r.id)
         continue
