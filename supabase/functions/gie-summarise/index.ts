@@ -291,10 +291,14 @@ serve(async (req) => {
   const { data: groups, error: gErr } = await gq
   if (gErr) return json({ error: gErr.message }, 500)
 
+  // Cadence is gated on last_run_at (wall clock), NOT last_summarised_at (the message
+  // cursor). The cursor is set to the last message's sent_at, so a group whose newest
+  // message is older than the cadence used to be "due" the instant its summary landed
+  // and re-fired on the next tick — 184 of 683 intervals fired early at a nominal 30 min.
   const now = Date.now()
   const due = (groups ?? []).filter((g: any) =>
-    body.force || body.group_id || !g.last_summarised_at ||
-    (now - new Date(g.last_summarised_at).getTime()) >= g.summarise_every_minutes * 60000,
+    body.force || body.group_id || !g.last_run_at ||
+    (now - new Date(g.last_run_at).getTime()) >= g.summarise_every_minutes * 60000,
   )
 
   // ── Known people (for assignee grounding + name→id resolution) ──────────────────
@@ -310,6 +314,14 @@ serve(async (req) => {
   // which also covers heads and the group's own bot number.
   const autoAllowed = Deno.env.get('GIE_AUTO_DISPATCH') !== 'off'
   const autoLeaders = new Set((emps ?? []).filter((e: any) => e.gie_auto_dispatch).map((e: any) => e.id))
+
+  // Stamps the cadence clock, and optionally advances the message cursor with it.
+  // Called only for groups we actually examined — the error paths below leave it
+  // untouched on purpose, so the next tick retries them immediately.
+  const markRun = (groupId: string, extra: Record<string, unknown> = {}) =>
+    admin.from('gie_groups')
+      .update({ last_run_at: new Date().toISOString(), ...extra })
+      .eq('id', groupId)
 
   const results: any[] = []
 
@@ -330,7 +342,7 @@ serve(async (req) => {
       .eq('group_id', g.id).gt('sent_at', since)
       .order('sent_at', { ascending: true }).limit(MAX_MESSAGES)
     if (mErr) { results.push({ group: g.name, error: mErr.message }); continue }
-    if (!msgs || msgs.length === 0) { results.push({ group: g.name, skipped: 'no new messages' }); continue }
+    if (!msgs || msgs.length === 0) { await markRun(g.id); results.push({ group: g.name, skipped: 'no new messages' }); continue }
 
     const windowStart = msgs[0].sent_at
     const windowEnd = msgs[msgs.length - 1].sent_at
@@ -348,7 +360,7 @@ serve(async (req) => {
       // we would never read far enough to see them. Drop this page and move on. Safe
       // by construction — had a leader been inside it, we would not be in this branch.
       const atCap = msgs.length >= MAX_MESSAGES
-      if (atCap) await admin.from('gie_groups').update({ last_summarised_at: windowEnd }).eq('id', g.id)
+      await markRun(g.id, atCap ? { last_summarised_at: windowEnd } : {})
       results.push({ group: g.name, messages: msgs.length, skipped: 'no leadership message', cursor_advanced: atCap })
       continue
     }
@@ -540,7 +552,7 @@ serve(async (req) => {
     }
 
     // Advance cursor only after successful writes → clean retry on failure.
-    await admin.from('gie_groups').update({ last_summarised_at: windowEnd }).eq('id', g.id)
+    await markRun(g.id, { last_summarised_at: windowEnd })
     results.push({ group: g.name, messages: msgs.length, flags: flags.length, drafts: drafts.length, auto_sent: autoSent })
     } finally {
       await admin.rpc('gie_release_group', { p_group_id: g.id })
