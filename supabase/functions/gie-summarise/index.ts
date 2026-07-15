@@ -5,10 +5,14 @@
 // must present the service-role key as a bearer (n8n Schedule Trigger does this).
 //
 // AUTO-DISPATCH: when an authorised leader (employees.gie_auto_dispatch — Dhruv /
-// Bhaskar) @mentions exactly ONE person in the message that carries the instruction,
-// that assignment is treated as confirmed. The task is created and WhatsApped to the
-// assignee immediately, with no operator click. Everything else still lands in the
-// Command Center as a pending draft. See autoDispatch() for the full gate.
+// Bhaskar) @mentions one or more people in the message that carries the instruction,
+// EACH tagged person is treated as a confirmed, independent assignment — one task and
+// one WhatsApp per tagged person, even if several were tagged in the same message. A
+// name written (not tagged) or merely inferred from the window also now auto-sends —
+// any resolved assignee qualifies, not only a direct tag. The task is created and
+// WhatsApped immediately, with no operator click. Only an UNRESOLVED assignee (nobody
+// tagged, named, or inferable) still lands in the Command Center as a pending draft.
+// See buildDraftRow() for the full gate.
 //
 // Body (optional): { group_id?: string, force?: boolean }
 //   - group_id: process just one group (used for manual tests)
@@ -455,31 +459,14 @@ serve(async (req) => {
       .slice(0, MAX_DRAFTS)
     const autoQueue: AutoCandidate[] = []
     if (drafts.length) {
-      const rows = drafts.map((d: any) => {
-        // The ONE message this instruction came from. Everything below is resolved
-        // against it — a window-wide @mention scan would stamp the most-tagged person
-        // onto every draft in the batch, including ones meant for someone else.
-        const idx = Number.isInteger(d.source_msg_index) ? d.source_msg_index : -1
-        const src = idx >= 0 && idx < msgs.length ? msgs[idx] : null
-
-        // A tag from a leader on THAT message. Exactly one tagged person = unambiguous;
-        // two or more and we cannot tell who owns the task, so a human decides.
-        const srcMentions: string[] = src?.is_from_leadership && Array.isArray(src.mentioned_employee_ids)
-          ? (src.mentioned_employee_ids as string[]).filter((id) => empById.has(id))
-          : []
-        const pinnedId = new Set(srcMentions).size === 1 ? srcMentions[0] : null
-
-        // Fallbacks, weakest last. A name the AI merely inferred from prior context /
-        // the rolling summary but that nobody actually wrote is discarded.
-        const nameId = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
-        const namedInSrc = nameId && src && nameWrittenIn(empById.get(nameId), wordsOf(String(src.body ?? src.transcript ?? ''))) ? nameId : null
-        const namedInWindow = nameId && nameWrittenIn(empById.get(nameId), windowWords) ? nameId : null
-
-        const assigneeId = pinnedId ?? namedInSrc ?? namedInWindow ?? topMentionId ?? null
-        // 'high' = tagged by a leader in this very message — the only tier we auto-send.
-        // 'medium' = named in that message · 'low' = guessed from elsewhere in the window.
-        const confidence = pinnedId ? 'high' : namedInSrc ? 'medium' : assigneeId ? 'low' : null
-
+      // Builds one draft-task row for a single candidate assignee, runs the
+      // auto-dispatch gate, and — if it clears — queues the WhatsApp send.
+      // Confidence no longer has to be 'high' to auto-send: ANY resolved assignee
+      // (tag, name written, or best-guess from the window) now qualifies. The only
+      // thing that keeps a draft in manual review is nobody being resolvable at all.
+      const buildDraftRow = (
+        d: any, src: any, assigneeId: string | null, confidence: 'high' | 'medium' | 'low' | null,
+      ) => {
         const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(d.due_date ?? '') ? d.due_date : null
         const pts = snapPoints(d.suggested_points)
         const draftId = crypto.randomUUID()
@@ -489,7 +476,7 @@ serve(async (req) => {
         const assignee = assigneeId ? empRow.get(assigneeId) : null
         const willAuto = !!(
           autoAllowed && g.auto_dispatch &&          // both kill switches off
-          confidence === 'high' &&                   // a tag, on this message
+          confidence &&                              // an assignee resolved at all — tag, name, or guess
           leader && autoLeaders.has(leader.id) &&    // ...from Dhruv or Bhaskar
           leader.auth_user_id &&                     // we can attribute the task to them
           assignee?.auth_user_id && isRealMobile(assignee.phone) && // reachable, not a placeholder
@@ -538,6 +525,35 @@ serve(async (req) => {
           custom_points:       pts,                                    // prefill the ladder tier (operator can override)
           needs_info:          !willAuto && (!assigneeId || !dueDate),
         }
+      }
+
+      const rows = drafts.flatMap((d: any) => {
+        // The ONE message this instruction came from. Everything below is resolved
+        // against it — a window-wide @mention scan would stamp the most-tagged person
+        // onto every draft in the batch, including ones meant for someone else.
+        const idx = Number.isInteger(d.source_msg_index) ? d.source_msg_index : -1
+        const src = idx >= 0 && idx < msgs.length ? msgs[idx] : null
+
+        // Every tag from a leader on THIS message is a confirmed, independent
+        // assignment. One row — and, if it clears the gate, one WhatsApp — per
+        // tagged person. Tagging three people creates three separate tasks.
+        const srcMentions: string[] = src?.is_from_leadership && Array.isArray(src.mentioned_employee_ids)
+          ? [...new Set((src.mentioned_employee_ids as string[]).filter((id: string) => empById.has(id)))]
+          : []
+        if (srcMentions.length >= 1) {
+          return srcMentions.map((id) => buildDraftRow(d, src, id, 'high'))
+        }
+
+        // No direct tag on this message — fall back to a name actually written,
+        // weakest last. A name the AI merely inferred from prior context / the
+        // rolling summary but that nobody actually wrote is discarded.
+        const nameId = d.assignee_name ? (empByName.get(normName(d.assignee_name)) ?? null) : null
+        const namedInSrc = nameId && src && nameWrittenIn(empById.get(nameId), wordsOf(String(src.body ?? src.transcript ?? ''))) ? nameId : null
+        const namedInWindow = nameId && nameWrittenIn(empById.get(nameId), windowWords) ? nameId : null
+        const assigneeId = namedInSrc ?? namedInWindow ?? topMentionId ?? null
+        // 'medium' = named in that message · 'low' = guessed from elsewhere in the window.
+        const confidence = namedInSrc ? 'medium' : assigneeId ? 'low' : null
+        return [buildDraftRow(d, src, assigneeId, confidence)]
       })
 
       const { error: dErr } = await admin.from('gie_draft_tasks').insert(rows)
