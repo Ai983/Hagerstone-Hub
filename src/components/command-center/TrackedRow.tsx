@@ -62,6 +62,14 @@ export function TrackedRow({
       <TableCell className="p-2 align-top">
         <div className="flex items-center gap-2">
           {badge}
+          {task.auto_dispatched_at && (
+            <Badge
+              className="bg-violet-100 text-violet-700"
+              title={`Created + WhatsApped automatically on a director's @mention, ${fmt(task.auto_dispatched_at)} — no operator click`}
+            >
+              🤖 Auto
+            </Badge>
+          )}
           <span className="text-sm text-stone-800 line-clamp-2">{task.title}</span>
         </div>
       </TableCell>

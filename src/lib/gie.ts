@@ -129,6 +129,8 @@ export interface GieTrackedTask {
   // from the originating draft (for the Group filter)
   group_id: string | null
   group_name: string | null
+  /** Set when this task was created + WhatsApped with no operator click. */
+  auto_dispatched_at: string | null
   // gie_task_tracking (embedded)
   tracking: {
     id: string
@@ -207,7 +209,7 @@ export async function fetchTrackedTasks(): Promise<GieTrackedTask[]> {
       id, assignee_employee_id, assignee_phone, due_at, task_points,
       reminder_count, last_reminder_at, next_reminder_at,
       is_completed, completed_at, penalty_applied, penalty_points, created_at,
-      draft:gie_draft_tasks(group_id, group:gie_groups(name)),
+      draft:gie_draft_tasks(group_id, group:gie_groups(name), auto_dispatched_at),
       task:del_tasks!inner(
         id, title, description, role_group, status, task_date, due_time,
         custom_points, on_behalf_of, submitted_at, created_at, assigned_to
@@ -220,6 +222,7 @@ export async function fetchTrackedTasks(): Promise<GieTrackedTask[]> {
     ...r.task,
     group_id: r.draft?.group_id ?? null,
     group_name: r.draft?.group?.name ?? null,
+    auto_dispatched_at: r.draft?.auto_dispatched_at ?? null,
     tracking: {
       id: r.id,
       assignee_employee_id: r.assignee_employee_id,
