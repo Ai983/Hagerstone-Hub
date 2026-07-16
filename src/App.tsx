@@ -56,11 +56,8 @@ export default function App() {
             </FounderSpendRoute>
           } />
 
-          <Route path="/command-center" element={
-            <DelSuperRoute>
-              <CommandCenterPage />
-            </DelSuperRoute>
-          } />
+          {/* Command Center temporarily disabled — re-enable by restoring DelSuperRoute wrapper */}
+          <Route path="/command-center" element={<Navigate to="/" replace />} />
 
           <Route path="/admin/employees" element={
             <AdminRoute>

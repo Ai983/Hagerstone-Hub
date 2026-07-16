@@ -45,7 +45,7 @@ export function DashboardPage() {
     { key: 'approvals', label: 'Approvals',    Icon: ClipboardCheck, show: role === 'founder' || isAdmin, onClick: () => navigate('/approvals') },
     { key: 'founder',   label: 'Overview',     Icon: LineChart,      show: role === 'founder' || isAdmin, onClick: () => navigate('/founder') },
     { key: 'spend',     label: 'Project Spend', Icon: Wallet,        show: canViewFounderSpend(employee), onClick: () => navigate('/founder/spend') },
-    { key: 'command',   label: 'Command Center', Icon: Radar,        show: !!employee?.del_super || role === 'founder' || isAdmin, onClick: () => navigate('/command-center') },
+    { key: 'command',   label: 'Command Center', Icon: Radar,        show: false, onClick: () => navigate('/command-center') },
     { key: 'admin',     label: 'Admin',        Icon: Settings,       show: isAdmin, onClick: () => navigate('/admin/employees') },
     { key: 'projects',  label: 'Projects',     Icon: FolderKanban,   show: isAdmin, onClick: () => navigate('/admin/projects') },
   ].filter((a) => a.show)
