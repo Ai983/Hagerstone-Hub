@@ -319,6 +319,29 @@ export function FounderDashboard() {
         {/* ── Headline KPIs ── */}
         <HeadlineKpis data={headlineQ.data ?? null} loading={headlineQ.isLoading} />
 
+        {/* ── Pending Approvals — surfaced right under the KPIs so founders can act
+             without hunting; rendered eagerly (no lazy defer) for findability. ── */}
+        <section id="approvals-queue" className="scroll-mt-24 space-y-4">
+          <h2 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+            ✅ Pending Approvals — action required
+          </h2>
+          <div className="grid lg:grid-cols-2 gap-6">
+            <PoApprovalPanel query={pPosQ} />
+            <Panel title="Imprest awaiting your approval">
+              {pImprestQ.error ? <ErrorBox label="Pending imprest" error={pImprestQ.error} /> : (
+                <SimpleTable
+                  head={['Ref', 'Employee', 'Site', 'Amount', 'Status', 'Submitted']}
+                  empty="Nothing pending 🎉"
+                  rows={(pImprestQ.data ?? []).map(r => [
+                    r.ref_id, r.employee_name ?? '—', r.site ?? '—', inr(r.amount), r.status, fmtDate(r.submitted_at),
+                  ])}
+                  rightAlign={[3]}
+                />
+              )}
+            </Panel>
+          </div>
+        </section>
+
         {/* ── Finance Section ── */}
         <Suspense fallback={<SectionSkeleton />}>
           <FinanceSection data={financeQ.data ?? null} loading={financeQ.isLoading} period={filters.period} site={filters.site} employeeId={filters.employeeId} />
@@ -348,28 +371,6 @@ export function FounderDashboard() {
           <Suspense fallback={<SectionSkeleton />}>
             <DelegationAnalyticsSection data={delQ.data ?? null} loading={delQ.isLoading} period={filters.period} />
           </Suspense>
-        </DeferUntilVisible>
-
-        {/* ── Approval Queues — deferred ── */}
-        <DeferUntilVisible>
-          <div>
-            <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-widest mb-4">Pending Approvals Queue</h2>
-            <div className="grid lg:grid-cols-2 gap-6">
-              <Panel title="Imprest awaiting your approval">
-                {pImprestQ.error ? <ErrorBox label="Pending imprest" error={pImprestQ.error} /> : (
-                  <SimpleTable
-                    head={['Ref', 'Employee', 'Site', 'Amount', 'Status', 'Submitted']}
-                    empty="Nothing pending 🎉"
-                    rows={(pImprestQ.data ?? []).map(r => [
-                      r.ref_id, r.employee_name ?? '—', r.site ?? '—', inr(r.amount), r.status, fmtDate(r.submitted_at),
-                    ])}
-                    rightAlign={[3]}
-                  />
-                )}
-              </Panel>
-              <PoApprovalPanel query={pPosQ} />
-            </div>
-          </div>
         </DeferUntilVisible>
 
         {/* ── Unified Work Score — the single company-wide leaderboard ── */}
