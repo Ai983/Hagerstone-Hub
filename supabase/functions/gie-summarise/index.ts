@@ -157,13 +157,25 @@ const BRIEF_TOOL = {
 }
 
 async function callClaude(apiKey: string, system: string, user: string) {
+  // Cache the fixed prefix (tools + system prompt — everything up to the
+  // cache_control breakpoint) for 1 hour instead of the default 5 minutes.
+  // Groups summarise on a ~30-min cadence, so at the 5-min default the cache
+  // expired between a group's own runs and only cross-group calls within one
+  // cron tick hit it (~55%). A 1h TTL keeps the prefix warm across the cadence,
+  // so far more calls read the cached tools+system (~90% cheaper on that slice).
+  // Requires the extended-cache-ttl beta header.
   const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'extended-cache-ttl-2025-04-11',
+      'content-type': 'application/json',
+    },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 3000,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral', ttl: '1h' } }],
       tools: [BRIEF_TOOL],
       tool_choice: { type: 'tool', name: 'record_brief' },
       messages: [{ role: 'user', content: user }],
