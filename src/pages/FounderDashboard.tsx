@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/button'
-import { ArrowLeft, LogOut, AlertCircle } from 'lucide-react'
+import { ArrowLeft, LogOut, AlertCircle, ExternalLink } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useDelegationPulse } from '../lib/delegation-scores'
 import { DashboardFilters } from '../components/dashboard/founder/DashboardFilters'
@@ -58,9 +58,13 @@ type PendingImprest = {
   ref_id: string; employee_name: string | null; site: string | null
   amount: number; status: string; submitted_at: string | null
 }
-type PendingPo = {
+// PO approval queue rows come enriched with a per-founder /approve-po deep link
+// (see public.founder_pending_po_approvals). `can_act` is true only for the two
+// founders who own an approval token (Dhruv / Bhaskar); others view read-only.
+type PendingPoLink = {
   po_number: string; project_code: string | null; supplier: string | null
   grand_total: number; approval_status: string; created_at: string | null
+  approve_url: string | null; can_act: boolean
 }
 
 const inr = (n: unknown) =>
@@ -255,7 +259,7 @@ export function FounderDashboard() {
 
   // Legacy pending queues
   const pImprestQ = useRpcLegacy<PendingImprest>('founder_pending_imprest', allowed)
-  const pPosQ     = useRpcLegacy<PendingPo>('founder_pending_pos', allowed)
+  const pPosQ     = useRpcLegacy<PendingPoLink>('founder_pending_po_approvals', allowed)
 
   const anyLoading = headlineQ.isLoading || financeQ.isLoading || cpsQ.isLoading
 
@@ -363,18 +367,7 @@ export function FounderDashboard() {
                   />
                 )}
               </Panel>
-              <Panel title="Purchase orders awaiting your approval">
-                {pPosQ.error ? <ErrorBox label="Pending POs" error={pPosQ.error} /> : (
-                  <SimpleTable
-                    head={['PO #', 'Project', 'Supplier', 'Amount', 'Status', 'Created']}
-                    empty="Nothing pending 🎉"
-                    rows={(pPosQ.data ?? []).map(r => [
-                      r.po_number, r.project_code ?? '—', r.supplier ?? '—', inr(r.grand_total), r.approval_status, fmtDate(r.created_at),
-                    ])}
-                    rightAlign={[3]}
-                  />
-                )}
-              </Panel>
+              <PoApprovalPanel query={pPosQ} />
             </div>
           </div>
         </DeferUntilVisible>
@@ -429,6 +422,55 @@ function SimpleTable({
         ))}
       </tbody>
     </table>
+  )
+}
+
+// Actionable PO approval queue. Each row deep-links to the existing CPS
+// /approve-po page (opened in a new tab) using the founder's own token, so a
+// founder can approve/reject without the WhatsApp message ever arriving.
+// Non-founder viewers (admins/management) see the list read-only.
+function PoApprovalPanel({
+  query,
+}: {
+  query: { data?: PendingPoLink[]; error: unknown; isLoading: boolean }
+}) {
+  const pos = query.data ?? []
+  return (
+    <Panel title={`Purchase orders awaiting your approval${pos.length ? ` (${pos.length})` : ''}`}>
+      {query.error ? (
+        <ErrorBox label="Pending POs" error={query.error} />
+      ) : query.isLoading ? (
+        <div className="px-4 py-6 text-sm text-stone-400 animate-pulse">Loading…</div>
+      ) : pos.length === 0 ? (
+        <div className="px-4 py-6 text-sm text-stone-400">Nothing pending 🎉</div>
+      ) : (
+        <div className="max-h-96 overflow-y-auto divide-y divide-stone-100">
+          {pos.map(po => (
+            <div key={po.po_number} className="flex items-center gap-3 px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-stone-800 truncate">{po.po_number}</div>
+                <div className="text-xs text-stone-400 truncate">
+                  {(po.supplier ?? '—')} · {(po.project_code ?? '—')} · {fmtDate(po.created_at)}
+                </div>
+              </div>
+              <div className="text-sm font-medium text-stone-800 tabular-nums shrink-0">{inr(po.grand_total)}</div>
+              {po.can_act && po.approve_url ? (
+                <a
+                  href={po.approve_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-1.5 transition active:scale-95"
+                >
+                  Review <ExternalLink size={12} />
+                </a>
+              ) : (
+                <span className="shrink-0 text-[11px] text-stone-400 italic">Founder sign-in to act</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
   )
 }
 
