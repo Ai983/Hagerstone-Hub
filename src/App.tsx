@@ -5,7 +5,6 @@ import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FounderDashboard } from './pages/FounderDashboard'
 import { ProjectSpendDashboard } from './pages/founder/ProjectSpendDashboard'
-import { CommandCenterPage } from './pages/CommandCenterPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { HeadRoute } from './components/HeadRoute'
@@ -56,7 +55,8 @@ export default function App() {
             </FounderSpendRoute>
           } />
 
-          {/* Command Center temporarily disabled — re-enable by restoring DelSuperRoute wrapper */}
+          {/* Command Center temporarily disabled — re-enable by re-importing CommandCenterPage
+              from './pages/CommandCenterPage' and restoring the DelSuperRoute wrapper */}
           <Route path="/command-center" element={<Navigate to="/" replace />} />
 
           <Route path="/admin/employees" element={
