@@ -37,13 +37,21 @@ function normalizePhone(raw: string): string {
 }
 
 async function sendWhatsApp(phone: string, message: string): Promise<{ ok: boolean; msgId: string | null }> {
-  if (!MAYTAPI_API_KEY) { console.error('[maytapi] MAYTAPI_API_KEY not set'); return { ok: false, msgId: null } }
+  // Prefer the self-hosted gateway when configured; else Maytapi (business creds).
+  const gatewayUrl = Deno.env.get('WA_GATEWAY_URL')
+  const gatewayKey = Deno.env.get('WA_GATEWAY_KEY')
+  const useGateway = !!gatewayUrl && !!gatewayKey
+  const sendKey = useGateway ? gatewayKey! : MAYTAPI_API_KEY
+  if (!sendKey) { console.error('[maytapi] no send key set (WA_GATEWAY_KEY or MAYTAPI_API_KEY)'); return { ok: false, msgId: null } }
+  const endpoint = useGateway
+    ? `${gatewayUrl}/maytapi/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`
+    : `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`
   try {
     const res = await fetch(
-      `https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`,
+      endpoint,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': MAYTAPI_API_KEY },
+        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': sendKey },
         body: JSON.stringify({ to_number: normalizePhone(phone), type: 'text', message }),
       },
     )

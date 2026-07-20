@@ -38,16 +38,25 @@ async function maytapiSend(
   apiKey: string,
   payload: Record<string, unknown>,
 ): Promise<WhatsAppResult> {
-  if (!apiKey) {
-    console.error('[maytapi] API key secret is not set')
+  // Prefer the self-hosted gateway when configured; else fall back to Maytapi.
+  // Cutover = set WA_GATEWAY_URL + WA_GATEWAY_KEY; rollback = unset them.
+  const gatewayUrl = Deno.env.get('WA_GATEWAY_URL')
+  const gatewayKey = Deno.env.get('WA_GATEWAY_KEY')
+  const useGateway = !!gatewayUrl && !!gatewayKey
+  const sendKey = useGateway ? gatewayKey! : apiKey
+  if (!sendKey) {
+    console.error('[maytapi] no send key set (WA_GATEWAY_KEY or MAYTAPI_API_KEY)')
     return { ok: false, msgId: null, raw: null }
   }
+  const endpoint = useGateway
+    ? `${gatewayUrl}/maytapi/${productId}/${phoneId}/sendMessage`
+    : `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`
   try {
     const res = await fetch(
-      `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`,
+      endpoint,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': sendKey },
         body: JSON.stringify(payload),
       },
     )

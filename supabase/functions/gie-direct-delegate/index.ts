@@ -32,18 +32,26 @@ const GRP_PHONE_ID   = Deno.env.get('MAYTAPI_GRP_PHONE_ID')   ?? '145466'
 const GRP_API_KEY    = Deno.env.get('MAYTAPI_GRP_API_KEY')    ?? ''
 
 async function sendToGroup(groupJid: string, assigneePhone: string, message: string) {
-  if (!GRP_API_KEY) {
-    console.warn('[direct-delegate] MAYTAPI_GRP_API_KEY not set — skipping group WA')
+  // Prefer the self-hosted gateway when configured; else Maytapi (GRP creds).
+  const gatewayUrl = Deno.env.get('WA_GATEWAY_URL')
+  const gatewayKey = Deno.env.get('WA_GATEWAY_KEY')
+  const useGateway = !!gatewayUrl && !!gatewayKey
+  const sendKey = useGateway ? gatewayKey! : GRP_API_KEY
+  if (!sendKey) {
+    console.warn('[direct-delegate] no send key (WA_GATEWAY_KEY or MAYTAPI_GRP_API_KEY) — skipping group WA')
     return false
   }
+  const endpoint = useGateway
+    ? `${gatewayUrl}/maytapi/${GRP_PRODUCT_ID}/${GRP_PHONE_ID}/sendMessage`
+    : `https://api.maytapi.com/api/${GRP_PRODUCT_ID}/${GRP_PHONE_ID}/sendMessage`
   const digits = assigneePhone.replace(/\D/g, '')
   const waId   = digits.startsWith('91') ? digits : `91${digits}`
   try {
     const res = await fetch(
-      `https://api.maytapi.com/api/${GRP_PRODUCT_ID}/${GRP_PHONE_ID}/sendMessage`,
+      endpoint,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': GRP_API_KEY },
+        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': sendKey },
         body: JSON.stringify({
           to_number: groupJid,
           type: 'text',
@@ -52,8 +60,8 @@ async function sendToGroup(groupJid: string, assigneePhone: string, message: str
         }),
       },
     )
-    const body = await res.json().catch(() => null)
-    const ok = res.ok && (body as any)?.success === true
+    const body: unknown = await res.json().catch(() => null)
+    const ok = res.ok && !!body && typeof body === 'object' && 'success' in body && body.success === true
     if (!ok) console.warn('[direct-delegate] group WA failed', body)
     return ok
   } catch (e) {
