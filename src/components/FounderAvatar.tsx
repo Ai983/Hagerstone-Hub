@@ -155,7 +155,7 @@ export function FounderAvatar() {
 
   return (
     <motion.div
-      className="fixed top-20 left-4 z-50 select-none cursor-default"
+      className="hidden md:block fixed top-20 left-4 z-50 select-none cursor-default"
       initial={{ opacity: 0, scale: 0.5, x: -24 }}
       animate={{ opacity: 1, scale: 1,   x:   0 }}
       transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1], delay: 0.4 }}
@@ -195,6 +195,8 @@ export function FounderAvatar() {
           {/* Canvas — face + animated eyelids */}
           <canvas
             ref={canvasRef}
+            role="img"
+            aria-label="Founder"
             width={C}
             height={C}
             style={{

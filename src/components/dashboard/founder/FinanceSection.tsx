@@ -41,6 +41,7 @@ function Panel({ title, children, onExport, info }: { title: string; children: R
               type="button"
               onClick={() => setShowInfo(s => !s)}
               aria-expanded={showInfo}
+              aria-label={`About ${title}`}
               className={`p-0.5 rounded transition-colors ${showInfo ? 'text-amber-600' : 'text-stone-300 hover:text-stone-500'}`}
             >
               <Info size={13} />
@@ -48,7 +49,7 @@ function Panel({ title, children, onExport, info }: { title: string; children: R
           )}
         </div>
         {onExport && (
-          <button onClick={onExport} className="text-stone-400 hover:text-stone-600 p-1 rounded">
+          <button onClick={onExport} aria-label={`Export ${title} as CSV`} className="text-stone-400 hover:text-stone-600 p-1 rounded">
             <Download size={13} />
           </button>
         )}

@@ -93,7 +93,7 @@ export function DashboardPage() {
           </div>
 
           {/* Desktop actions (hidden on mobile — see bottom nav) */}
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden sm:flex flex-wrap items-center justify-end gap-2">
             {navActions.map((a) => (
               <motion.div key={a.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                 <Button

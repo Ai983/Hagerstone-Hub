@@ -135,7 +135,7 @@ export function ChatbotWidget() {
                   <button onClick={() => setFullscreen((f) => !f)} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hidden sm:block">
                     {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                   </button>
-                  <button onClick={() => setOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg"><X size={18} /></button>
+                  <button onClick={() => setOpen(false)} aria-label="Close chat" title="Close" className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg"><X size={18} /></button>
                 </div>
               </div>
 

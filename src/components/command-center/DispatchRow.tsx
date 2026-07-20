@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Send, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
@@ -31,6 +31,15 @@ export function DispatchRow({
   const [description, setDescription] = useState(draft.description ?? '')
   const [taskDate, setTaskDate] = useState(draft.task_date ?? '')
   const [dueTime, setDueTime] = useState(draft.due_time?.slice(0, 5) ?? '')
+
+  // The row is keyed by draft.id and never remounts, so pull in server-side edits
+  // (another operator, auto-dispatch) when the stored values actually change.
+  useEffect(() => {
+    setTitle(draft.title)
+    setDescription(draft.description ?? '')
+    setTaskDate(draft.task_date ?? '')
+    setDueTime(draft.due_time?.slice(0, 5) ?? '')
+  }, [draft.title, draft.description, draft.task_date, draft.due_time])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['gie_drafts'] })

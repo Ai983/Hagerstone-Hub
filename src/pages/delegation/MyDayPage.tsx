@@ -211,10 +211,10 @@ function SubmitModal({ task, onClose, onSubmitted }: SubmitModalProps) {
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 w-full sm:max-w-lg"
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 w-full sm:max-w-lg flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="flex items-start justify-between px-5 pt-5 pb-3">
+        <div className="flex items-start justify-between px-5 pt-5 pb-3 shrink-0">
           <div className="flex-1 min-w-0 pr-3">
             <p className="text-xs text-stone-400 mb-0.5">Kaam kya kiya?</p>
             <p className="font-semibold text-stone-800 text-sm leading-snug line-clamp-2">{task.title}</p>
@@ -222,13 +222,14 @@ function SubmitModal({ task, onClose, onSubmitted }: SubmitModalProps) {
           <button
             onClick={onClose}
             disabled={busy}
+            aria-label="Close"
             className="shrink-0 text-stone-400 hover:text-stone-600 p-1 -mr-1 mt-0.5 rounded-lg"
           >
             <X size={17} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-5 pb-5 space-y-3">
+        <form onSubmit={handleSubmit} className="px-5 pb-5 space-y-3 overflow-y-auto">
           {/* Text area — primary input (STT deferred) */}
           <div>
             <textarea

@@ -95,12 +95,12 @@ export function EmployeesPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3 mb-6">
           <Input
             placeholder="Search by name or email..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="max-w-xs bg-white"
+            className="w-full sm:w-auto sm:max-w-xs bg-white"
           />
           <Select value={roleFilter} onValueChange={setRoleFilter}>
             <SelectTrigger className="w-44 bg-white">
@@ -119,7 +119,7 @@ export function EmployeesPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-gray-50">
@@ -201,6 +201,7 @@ export function EmployeesPage() {
                             variant="ghost"
                             size="sm"
                             className="h-7 text-xs text-red-500 hover:text-red-600"
+                            aria-label={`Deactivate ${emp.name}`}
                             onClick={() => {
                               if (confirm(`Deactivate ${emp.name}?`)) {
                                 deactivateMutation.mutate(emp.id)

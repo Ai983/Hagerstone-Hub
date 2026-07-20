@@ -506,18 +506,18 @@ export function ApprovalsPage() {
         className="bg-white/70 backdrop-blur-md border-b border-amber-100/80 px-6 py-3.5"
         style={{ boxShadow: '0 2px 24px rgba(146,64,14,0.08)' }}
       >
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} aria-label="Back to dashboard" className="shrink-0">
               <ArrowLeft size={16} />
             </Button>
-            <h1 className="text-xl font-semibold text-amber-950">📋 Imprest Approvals</h1>
+            <h1 className="text-xl font-semibold text-amber-950 truncate">📋 Imprest Approvals</h1>
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-amber-700">
+          <div className="flex items-center gap-3 text-sm min-w-0">
+            <span className="text-amber-700 truncate hidden sm:inline">
               {employee.name} ({role === 'founder' ? 'Founder' : 'Admin'})
             </span>
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            <Button variant="ghost" size="sm" onClick={handleSignOut} aria-label="Sign out" className="shrink-0">
               <LogOut size={16} />
             </Button>
           </div>

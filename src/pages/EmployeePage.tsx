@@ -56,10 +56,10 @@ export function EmployeePage() {
   return (
     <div className="min-h-screen bg-amber-50">
       <header className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center gap-3">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft size={14} className="mr-1" /> Back</Button>
           <span className="text-stone-300">|</span>
-          <h1 className="font-semibold text-stone-800">Employee Scorecard</h1>
+          <h1 className="font-semibold text-stone-800 truncate">Employee Scorecard</h1>
           <div className="flex-1" />
           <div className="flex bg-stone-100 rounded-lg p-0.5">
             {PERIODS.map((p) => (
@@ -88,7 +88,7 @@ export function EmployeePage() {
         </div>
 
         {/* Points breakdown */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <BreakTile label="Task points" value={u.task_points} cls="from-amber-50 text-amber-800 border-amber-200" hint="assigned & verified" />
           <BreakTile label="Operational" value={u.ops_points} cls="from-emerald-50 text-emerald-800 border-emerald-200" hint="auto CPS/Finance" />
           <BreakTile label="Coordinator" value={u.coord_points} cls="from-violet-50 text-violet-800 border-violet-200" hint="assign & verify" />
@@ -145,7 +145,7 @@ export function EmployeePage() {
           {/* Coordinator */}
           {data.coordinator && (
             <Card title="Coordinator Performance" icon={<ShieldCheck size={15} />} accent="text-violet-700">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <Stat label="Tasks assigned → done" value={data.coordinator.assigned_completed} sub="×2 pts" />
                 <Stat label="Verified <24h" value={data.coordinator.verify_fast} sub="×3 pts" />
                 <Stat label="Verified 24–48h" value={data.coordinator.verify_ok} sub="×1 pt" />

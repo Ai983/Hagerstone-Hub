@@ -30,7 +30,7 @@ function Panel({ title, children, onExport }: { title: string; children: React.R
       <div className="px-4 py-3 flex items-center justify-between border-b border-stone-100">
         <h3 className="font-medium text-stone-700 text-sm">{title}</h3>
         {onExport && (
-          <button onClick={onExport} className="text-stone-400 hover:text-stone-600 p-1 rounded">
+          <button onClick={onExport} aria-label={`Export ${title} as CSV`} className="text-stone-400 hover:text-stone-600 p-1 rounded">
             <Download size={13} />
           </button>
         )}

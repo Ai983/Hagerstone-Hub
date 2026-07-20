@@ -201,12 +201,12 @@ export function ProjectsPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3 mb-6">
           <Input
             placeholder="Search by name or code..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="max-w-xs bg-white"
+            className="w-full sm:w-auto sm:max-w-xs bg-white"
           />
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="w-48 bg-white"><SelectValue placeholder="All categories" /></SelectTrigger>
@@ -221,7 +221,7 @@ export function ProjectsPage() {
           <div className="text-sm text-stone-500 self-center">{filtered.length} projects</div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-gray-50">
@@ -276,11 +276,11 @@ export function ProjectsPage() {
 
       {/* Add / Edit dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Project' : 'Add Project'}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
             <div className="space-y-1.5">
               <Label className="text-xs">Code</Label>
               <Input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="e.g. VANEET" />
@@ -312,10 +312,10 @@ export function ProjectsPage() {
               <Label className="text-xs">Site contact</Label>
               <Input value={form.site_contact} onChange={e => setForm(f => ({ ...f, site_contact: e.target.value }))} />
             </div>
-            <div className="flex items-center gap-2 col-span-2 pt-1">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:col-span-2 pt-1">
               <label className="flex items-center gap-2 text-xs"><Switch checked={form.is_cps} onCheckedChange={(v) => setForm(f => ({ ...f, is_cps: v }))} /> In CPS</label>
-              <label className="flex items-center gap-2 text-xs ml-4"><Switch checked={form.is_finance} onCheckedChange={(v) => setForm(f => ({ ...f, is_finance: v }))} /> In Finance</label>
-              <label className="flex items-center gap-2 text-xs ml-4"><Switch checked={form.is_active} onCheckedChange={(v) => setForm(f => ({ ...f, is_active: v }))} /> Active</label>
+              <label className="flex items-center gap-2 text-xs"><Switch checked={form.is_finance} onCheckedChange={(v) => setForm(f => ({ ...f, is_finance: v }))} /> In Finance</label>
+              <label className="flex items-center gap-2 text-xs"><Switch checked={form.is_active} onCheckedChange={(v) => setForm(f => ({ ...f, is_active: v }))} /> Active</label>
             </div>
           </div>
           <DialogFooter>

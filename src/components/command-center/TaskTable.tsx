@@ -254,7 +254,8 @@ export function TaskTable({
         )}
       </div>
 
-      <Table className="table-fixed w-full">
+      <div className="overflow-x-auto">
+      <Table className="table-fixed w-full min-w-[880px]">
         <TableHeader>
           <TableRow>
             {COLS.map((c, i) => (
@@ -300,6 +301,7 @@ export function TaskTable({
           )}
         </TableBody>
       </Table>
+      </div>
     </section>
   )
 }

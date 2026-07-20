@@ -286,13 +286,13 @@ export function FounderDashboard() {
       >
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} className="text-xs text-stone-500 hover:text-stone-700 shrink-0 px-2">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} aria-label="Back to modules" className="text-xs text-stone-500 hover:text-stone-700 shrink-0 px-2">
               <ArrowLeft size={14} className="sm:mr-1.5" /> <span className="hidden sm:inline">Modules</span>
             </Button>
             <span className="text-stone-300 shrink-0">|</span>
             <div className="font-semibold text-stone-800 text-sm truncate">Founder Overview</div>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-xs text-stone-400 hover:text-stone-600 shrink-0 px-2">
+          <Button variant="ghost" size="sm" onClick={handleSignOut} aria-label="Sign out" className="text-xs text-stone-400 hover:text-stone-600 shrink-0 px-2">
             <LogOut size={13} className="sm:mr-1.5" /> <span className="hidden sm:inline">Sign out</span>
           </Button>
         </div>

@@ -158,7 +158,7 @@ function AddGroupModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
           <h3 className="text-sm font-semibold text-stone-700">Add groups from WhatsApp</h3>
-          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600"><X size={16} /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-stone-400 hover:text-stone-600"><X size={16} /></button>
         </div>
 
         <div className="p-3 border-b border-stone-100">

@@ -220,7 +220,7 @@ export function AddEmployeePage() {
           <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
             <h2 className="font-medium text-stone-700 text-sm">Personal Details</h2>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Full Name *</Label>
                 <Input placeholder="Ravi Sharma" {...register('name')} />
@@ -233,7 +233,7 @@ export function AddEmployeePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Phone</Label>
                 <Input placeholder="+91 98765 43210" {...register('phone')} />
@@ -244,7 +244,7 @@ export function AddEmployeePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Designation</Label>
                 <Input placeholder="Site Engineer" {...register('designation')} />

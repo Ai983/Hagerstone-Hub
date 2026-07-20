@@ -161,6 +161,7 @@ export function DrillDownModal({ config, onClose }: Props) {
             </button>
             <button
               onClick={onClose}
+              aria-label="Close"
               className="text-stone-400 hover:text-stone-700 rounded-lg p-1.5 hover:bg-stone-100"
             >
               <X size={18} />
