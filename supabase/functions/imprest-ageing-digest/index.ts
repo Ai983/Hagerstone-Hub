@@ -13,7 +13,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SHARED_SECRET = Deno.env.get('N8N_DIGEST_SECRET') ?? 'hagerstone-n8n-secret-2026'
 // Unguessable key for the public, no-login report view link (?view=1&k=...).
-const REPORT_KEY = Deno.env.get('REPORT_KEY') ?? 'a7f3c9e1b5d24680f9c3a1e7'
+const REPORT_KEY = Deno.env.get('REPORT_KEY')
 
 const inr = (n: number) => 'Rs.' + Number(n ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const lakh = (n: number) =>

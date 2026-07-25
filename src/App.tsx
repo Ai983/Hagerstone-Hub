@@ -34,8 +34,11 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Public, no-login ageing report (linked from the daily founder WhatsApp) */}
-          <Route path="/r/ageing" element={<PublicAgeingReport />} />
+          <Route path="/r/ageing" element={
+            <FounderSpendRoute>
+              <PublicAgeingReport />
+            </FounderSpendRoute>
+          } />
 
           <Route path="/dashboard" element={
             <ProtectedRoute>
