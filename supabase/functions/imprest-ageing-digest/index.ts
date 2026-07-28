@@ -109,7 +109,8 @@ Deno.serve(async (req) => {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
-  const reportUrl = `https://hagerstone-hub.vercel.app/r/ageing?k=${REPORT_KEY}`
+  const hubBase = Deno.env.get('HUB_PUBLIC_URL') ?? 'https://hagerstone-hub.vercel.app'
+  const reportUrl = `${hubBase}/r/ageing?k=${REPORT_KEY}`
   return new Response(JSON.stringify({
     message: buildGist(data, reportUrl),
     report_url: reportUrl,
