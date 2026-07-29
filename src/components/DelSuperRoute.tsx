@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
  * department head — only company-wide delegation authorities.
  */
 export function DelSuperRoute({ children }: { children: React.ReactNode }) {
-  const { employee, loading } = useAuth()
+  const { employee, loading, status } = useAuth()
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-amber-50">
@@ -15,7 +15,8 @@ export function DelSuperRoute({ children }: { children: React.ReactNode }) {
     </div>
   )
 
-  if (!employee) return <Navigate to="/login" replace />
+  if (status === 'anon') return <Navigate to="/login" replace />
+  if (!employee) return <Navigate to="/dashboard" replace />
 
   const canAccess =
     employee.del_super === true ||

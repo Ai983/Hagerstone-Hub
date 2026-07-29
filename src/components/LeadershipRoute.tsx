@@ -13,9 +13,10 @@ export function isLeadership(employee: { role?: string; is_head?: boolean; del_s
 }
 
 export function LeadershipRoute({ children }: { children: React.ReactNode }) {
-  const { employee, loading } = useAuth()
+  const { employee, loading, status } = useAuth()
   if (loading) return null
-  if (!employee) return <Navigate to="/login" replace />
+  if (status === 'anon') return <Navigate to="/login" replace />
+  if (!employee) return <Navigate to="/dashboard" replace />
   if (!isLeadership(employee)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
