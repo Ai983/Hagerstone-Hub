@@ -9,6 +9,7 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     color: 'bg-orange-50',
     borderColor: 'border-orange-400',
     icon: '🕐',
+    sso: true,
   },
   {
     id: 'finance_employee',
@@ -54,6 +55,7 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     color: 'bg-blue-50',
     borderColor: 'border-blue-400',
     icon: '👥',
+    sso: true,
   },
   {
     id: 'lcs',

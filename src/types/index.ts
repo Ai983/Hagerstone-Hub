@@ -67,6 +67,8 @@ export interface ModuleConfig {
   color: string
   borderColor: string
   icon: string
+  /** Same Supabase project → hand off the live session on tile click (no 2nd login). */
+  sso?: boolean
 }
 
 export interface OnboardingLog {

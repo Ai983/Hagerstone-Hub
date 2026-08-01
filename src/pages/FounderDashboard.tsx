@@ -19,6 +19,7 @@ const CpsSection               = lazy(() => import('../components/dashboard/foun
 const ProjectCostsSection      = lazy(() => import('../components/dashboard/founder/ProjectCostsSection').then(m => ({ default: m.ProjectCostsSection })))
 const DelegationAnalyticsSection = lazy(() => import('../components/dashboard/founder/DelegationAnalyticsSection').then(m => ({ default: m.DelegationAnalyticsSection })))
 const ImprestAgeingSection     = lazy(() => import('../components/dashboard/founder/ImprestAgeingSection').then(m => ({ default: m.ImprestAgeingSection })))
+const AttendanceSection       = lazy(() => import('../components/dashboard/founder/AttendanceSection').then(m => ({ default: m.AttendanceSection })))
 // Below-fold unified Work Score board (single company-wide leaderboard)
 const RecognitionStrip = lazy(() => import('../components/dashboard/RecognitionStrip').then(m => ({ default: m.RecognitionStrip })))
 const WorkLeaderboard  = lazy(() => import('../components/dashboard/WorkLeaderboard').then(m => ({ default: m.WorkLeaderboard })))
@@ -341,6 +342,11 @@ export function FounderDashboard() {
             </Panel>
           </div>
         </section>
+
+        {/* ── Attendance — live operational view (present/late/absent, off-site, team map) ── */}
+        <Suspense fallback={<SectionSkeleton />}>
+          <AttendanceSection enabled={allowed} />
+        </Suspense>
 
         {/* ── Finance Section ── */}
         <Suspense fallback={<SectionSkeleton />}>
