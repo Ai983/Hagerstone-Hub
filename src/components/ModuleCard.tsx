@@ -2,7 +2,6 @@ import { useRef } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
 import type { ModuleConfig } from '../types'
 import { ExternalLink, Lock } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 
 interface Props {
   module: ModuleConfig
@@ -51,22 +50,23 @@ export function ModuleCard({ module, isAccessible, index }: Props) {
 
   const handleClick = () => {
     if (!isAccessible) return
-    // Plain modules (different backend) just open. Same-project modules get a
-    // one-time session hand-off in the URL fragment so there's no second login.
-    if (!module.sso) { window.open(module.url, '_blank', 'noopener,noreferrer'); return }
-    // Open synchronously (keeps the user-gesture, dodges popup blockers), then
-    // point the tab once we've read the current session.
-    const win = window.open('about:blank', '_blank')
-    supabase.auth.getSession().then(({ data }) => {
-      const s = data.session
-      let url = module.url
-      if (s?.access_token && s?.refresh_token) {
-        const frag = `sso=${encodeURIComponent(`${s.access_token}|${s.refresh_token}`)}`
-        url += (url.includes('#') ? '&' : '#') + frag
-      }
-      if (win) win.location.href = url
-      else window.open(url, '_blank', 'noopener,noreferrer')
-    }).catch(() => { if (win) win.location.href = module.url })
+    let url = module.url
+    // Same-project modules get a one-time session hand-off in the URL fragment so
+    // there's no second login. Read the session SYNCHRONOUSLY from storage — an
+    // async getSession() before window.open loses the user gesture and mobile
+    // Safari blocks the tab (the tile appears to do nothing).
+    if (module.sso) {
+      try {
+        const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+        const raw = key ? JSON.parse(localStorage.getItem(key) || 'null') : null
+        const s = raw?.access_token ? raw : (raw?.currentSession ?? raw?.session ?? null)
+        if (s?.access_token && s?.refresh_token) {
+          const frag = `sso=${encodeURIComponent(`${s.access_token}|${s.refresh_token}`)}`
+          url += (url.includes('#') ? '&' : '#') + frag
+        }
+      } catch { /* fall back to a plain open — target shows its own login */ }
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const glowColor = BORDER_GLOW[module.borderColor] ?? CARD_SHADOW_HOVER
