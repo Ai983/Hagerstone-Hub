@@ -14,7 +14,12 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     id: 'finance_employee',
     name: 'Finance — Employee',
     description: 'Submit imprest requests · Track expenses · View payment status',
-    url: 'https://m.finance.hagerstone.com',
+    // NOTE: reverted to the vercel.app URL until SSO ships. The hagerstone.com
+    // domains are live, but pointing tiles at them before cookie-based SSO means
+    // users logged in on the old Hub URL hit a login screen on every tile click.
+    // Restore to https://m.finance.hagerstone.com as part of the SSO cutover.
+    // See SSO_SINGLE_LOGIN_PLAN.md §8 risk #1.
+    url: 'https://expense-automation-mobile.vercel.app',
     color: 'bg-teal-50',
     borderColor: 'border-teal-400',
     icon: '💰',
@@ -23,7 +28,9 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     id: 'finance_admin',
     name: 'Finance — Admin',
     description: 'Imprest approvals · Expense management · PO payments · Admin reports',
-    url: 'https://finance.hagerstone.com',
+    // Reverted until SSO ships — see note above and SSO_SINGLE_LOGIN_PLAN.md §8.
+    // Restore to https://finance.hagerstone.com at cutover.
+    url: 'https://expense-automation-three.vercel.app',
     color: 'bg-emerald-50',
     borderColor: 'border-emerald-500',
     icon: '💼',
@@ -32,7 +39,9 @@ export const MODULE_REGISTRY: ModuleConfig[] = [
     id: 'cps',
     name: 'Procurement (CPS)',
     description: 'PR → RFQ → Quote → PO → GRN · Supplier management · Audit trail',
-    url: 'https://cps.hagerstone.com',
+    // Reverted until SSO ships — see note above and SSO_SINGLE_LOGIN_PLAN.md §8.
+    // Restore to https://cps.hagerstone.com at cutover.
+    url: 'https://hagerstone-cps.vercel.app',
     color: 'bg-purple-50',
     borderColor: 'border-purple-400',
     icon: '📦',
