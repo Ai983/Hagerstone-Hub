@@ -11,7 +11,7 @@ import {
   resendTaskFollowup,
 } from '../../lib/delegation'
 import { useDelegationScores } from '../../lib/delegation-scores'
-import { CreateTaskForm } from '../../pages/delegation/MyDayPage'
+import { AssignTaskDialog } from './AssignTaskDialog'
 import { ROLE_SHORT_LABELS } from '../../config/roles'
 import type { Employee, RoleId } from '../../types'
 import type { DelTask, DelTaskType } from '../../types/delegation'
@@ -213,9 +213,8 @@ export function EmployeeDelegationBoard() {
           fixed overlay covers the whole window (like the Mera Din page). */}
       <AnimatePresence>
         {createOpen && employee && (
-          <CreateTaskForm
+          <AssignTaskDialog
             employee={employee}
-            taskTypes={taskTypes as DelTaskType[]}
             teamMembers={employees as Employee[]}
             onClose={() => setCreateOpen(false)}
             onCreated={invalidate}

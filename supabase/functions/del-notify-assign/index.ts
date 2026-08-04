@@ -100,11 +100,12 @@ serve(async (req) => {
   // Assigned on behalf of a director (Ritu assigns for them); fall back to caller.
   const assigner = task.on_behalf_of ?? caller.name
 
+  const typeLine = task.type_code ? `🏷️ *Type:* ${typeLabel}\n` : ''
   const message =
     `📋 *Naya Kaam Assign Hua Hai*\n\n` +
     `Namaste ${assignee?.name ?? ''}! Aapko ek naya task ${assigner} ne assign kiya hai:\n\n` +
     `📝 *Kaam:* ${task.title}\n` +
-    `🏷️ *Type:* ${typeLabel}\n` +
+    typeLine +
     `👤 *Assign by:* ${assigner}\n` +
     `⏰ *Last date:* ${dueLabel}${timeStr}\n\n` +
     `Kripya is task ko skillfully aur timely complete karein.\n\n` +
