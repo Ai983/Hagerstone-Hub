@@ -61,6 +61,7 @@ export async function fetchMyRecentPoints(
     .from('del_points')
     .select('*, del_tasks(title)')
     .eq('user_id', authUserId)
+    .eq('is_archived', false)
     .order('awarded_at', { ascending: false })
     .limit(limit)
   if (error) throw error
@@ -77,6 +78,7 @@ export async function fetchMyDelegationTotal(authUserId: string): Promise<number
     .eq('user_id', authUserId)
     .eq('status', 'verified')
     .eq('source_type', 'delegation')
+    .eq('is_archived', false)
   if (error) throw error
   return (data ?? []).reduce((s: number, r: { points: number }) => s + r.points, 0)
 }
@@ -85,6 +87,7 @@ export async function fetchOrgFeed(limit = 40): Promise<OrgFeedRow[]> {
   const { data: pts, error } = await supabase
     .from('del_points')
     .select('*')
+    .eq('is_archived', false)
     .order('awarded_at', { ascending: false })
     .limit(limit)
   if (error) throw error
@@ -105,6 +108,7 @@ export async function fetchPendingCountsByRole(): Promise<Record<string, number>
     .from('del_tasks')
     .select('role_group')
     .eq('status', 'submitted')
+    .eq('is_archived', false)
   if (error) throw error
   const counts: Record<string, number> = {}
   for (const row of data ?? []) {

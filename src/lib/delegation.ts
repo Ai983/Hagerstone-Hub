@@ -43,6 +43,7 @@ export async function fetchMyTasks(authUserId: string): Promise<DelTask[]> {
     .from('del_tasks')
     .select('*, del_points(id, points, proposed_points, summary, agent_meta, reason, status, awarded_at)')
     .eq('assigned_to', authUserId)
+    .eq('is_archived', false)
     .order('task_date', { ascending: false })
     .order('created_at', { ascending: false })
   if (error) throw error
@@ -107,6 +108,7 @@ export async function fetchSubmittedTasks(roleGroup: string | null): Promise<Del
       del_submissions(id, raw_text, attachments, input_type, created_at)
     `)
     .in('status', ['under_review', 'submitted'])
+    .eq('is_archived', false)
     .order('submitted_at', { ascending: true })
     // Latest submission first — a task can have several (e.g. resubmitted after a
     // rejection); the reviewer must see the most recent one (and its attachments).
@@ -238,6 +240,7 @@ export async function fetchAllOpenTasks(): Promise<DelTask[]> {
     .from('del_tasks')
     .select('*, del_points(points, proposed_points, status)')
     .in('status', ['assigned', 'in_progress', 'submitted', 'under_review'])
+    .eq('is_archived', false)
     .order('task_date', { ascending: true })
   if (error) throw error
   return (data ?? []) as DelTask[]
