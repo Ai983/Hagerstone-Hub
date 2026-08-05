@@ -174,6 +174,7 @@ export async function fetchGroupSummaries(groupId: string, limit = 20): Promise<
     .from('gie_summaries')
     .select('*')
     .eq('group_id', groupId)
+    .eq('is_archived', false)
     .order('window_end', { ascending: false })
     .limit(limit)
   if (error) throw error
@@ -182,7 +183,7 @@ export async function fetchGroupSummaries(groupId: string, limit = 20): Promise<
 
 /** OPEN leadership flags for one group (the action backlog for that group). */
 export async function fetchFlaggedItems(groupId?: string | null): Promise<GieFlaggedItem[]> {
-  let q = supabase.from('gie_flagged_items').select('*, group:gie_groups(name)').eq('status', 'open')
+  let q = supabase.from('gie_flagged_items').select('*, group:gie_groups(name)').eq('status', 'open').eq('is_archived', false)
   if (groupId) q = q.eq('group_id', groupId)
   const { data, error } = await q.order('created_at', { ascending: false })
   if (error) throw error
@@ -191,7 +192,7 @@ export async function fetchFlaggedItems(groupId?: string | null): Promise<GieFla
 
 /** PENDING draft tasks for one group — ready to edit + dispatch. */
 export async function fetchDraftTasks(groupId?: string | null): Promise<GieDraftTask[]> {
-  let q = supabase.from('gie_draft_tasks').select('*, group:gie_groups(name)').eq('status', 'pending')
+  let q = supabase.from('gie_draft_tasks').select('*, group:gie_groups(name)').eq('status', 'pending').eq('is_archived', false)
   if (groupId) q = q.eq('group_id', groupId)
   const { data, error } = await q.order('created_at', { ascending: false })
   if (error) throw error
@@ -215,6 +216,7 @@ export async function fetchTrackedTasks(): Promise<GieTrackedTask[]> {
         custom_points, on_behalf_of, submitted_at, created_at, assigned_to
       )
     `)
+    .eq('is_archived', false)
     .order('created_at', { ascending: false })
   if (error) throw error
   // deno-lint-ignore no-explicit-any
