@@ -146,6 +146,50 @@ export interface ImprestAgeing {
   }
 }
 
+// ── CPS PR Ageing report — "which procurement head is a PR stuck with, and for how long" ──
+export interface CpsPrAgeingGroup {
+  owner?: string
+  stage_key?: string
+  label?: string
+  count: number
+  oldest: number
+  avg: number
+  bands: Record<AgeBand, number>
+}
+
+export interface CpsPrAgeingItem {
+  ref: string
+  project: string | null
+  site: string | null
+  status: string
+  stage_key: string
+  priority: string | null
+  requester: string | null
+  owner: string
+  created_at: string
+  required_by: string | null
+  age_days: number
+  band: AgeBand
+}
+
+export interface CpsPrAgeing {
+  as_of: string
+  kpis: {
+    stuck_count: number
+    oldest_days: number
+    oldest_ref: string | null
+    oldest_owner: string | null
+    breach_gt7: number
+    breach_gt15: number
+    breach_gt30: number
+    top_owner: string | null
+    top_owner_count: number
+  }
+  by_owner: CpsPrAgeingGroup[]
+  by_stage: CpsPrAgeingGroup[]
+  items: CpsPrAgeingItem[]
+}
+
 export interface DelegationSummary {
   task_summary: {
     total: number
