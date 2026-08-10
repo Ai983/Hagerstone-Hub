@@ -261,7 +261,7 @@ function StuckPrs({ items }: { items: CpsPrAgeingItem[] }) {
               <tr key={it.ref} className="border-t border-stone-100 hover:bg-amber-50/40">
                 <td className="px-3 py-2 font-mono text-[12px] whitespace-nowrap text-stone-700">{it.ref}</td>
                 <td className="px-3 py-2 text-[12px] font-medium text-stone-700 whitespace-nowrap">{it.owner}</td>
-                <td className="px-3 py-2 text-[12px] text-stone-600">{it.status === 'pending' ? 'Pending review' : 'RFQ sent'}</td>
+                <td className="px-3 py-2 text-[12px] text-stone-600">{it.stage_label}</td>
                 <td className="px-3 py-2 text-[12px] text-stone-600 max-w-[220px] truncate">{it.project ?? '—'}{it.site ? ` · ${it.site}` : ''}</td>
                 <td className="px-3 py-2 text-[12px] text-stone-600">{it.requester ?? '—'}</td>
                 <td className="px-3 py-2">
@@ -289,7 +289,7 @@ function StuckPrs({ items }: { items: CpsPrAgeingItem[] }) {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="font-mono text-[12px] text-stone-700">{it.ref}</div>
-                <div className="text-[12px] text-stone-500 mt-0.5">{it.status === 'pending' ? 'Pending review' : 'RFQ sent'}</div>
+                <div className="text-[12px] text-stone-500 mt-0.5">{it.stage_label}</div>
               </div>
               <AgeChip days={it.age_days} />
             </div>

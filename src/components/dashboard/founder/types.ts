@@ -151,6 +151,10 @@ export interface CpsPrAgeingGroup {
   owner?: string
   stage_key?: string
   label?: string
+  /** by_stage only: whether this stage is blocked on the head rather than on suppliers. */
+  needs_you?: boolean
+  /** by_owner only: how many of this owner's PRs are blocked on them. */
+  needs_them?: number
   count: number
   oldest: number
   avg: number
@@ -163,6 +167,12 @@ export interface CpsPrAgeingItem {
   site: string | null
   status: string
   stage_key: string
+  /** Real blocking stage — an RFQ can exist in 'draft' and never have been sent. */
+  stage_label: string
+  /** true = blocked on the procurement head; false = genuinely waiting on suppliers. */
+  needs_you: boolean
+  rfq_number: string | null
+  quote_count: number
   priority: string | null
   requester: string | null
   owner: string
