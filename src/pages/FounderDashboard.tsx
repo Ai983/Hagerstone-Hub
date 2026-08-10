@@ -10,7 +10,7 @@ import { useDelegationPulse } from '../lib/delegation-scores'
 import { DashboardFilters } from '../components/dashboard/founder/DashboardFilters'
 import { ChatbotWidget } from '../components/dashboard/founder/chatbot/ChatbotWidget'
 import { HeadlineKpis } from '../components/dashboard/founder/HeadlineKpis'
-import type { FilterState, HeadlineKpi, FinanceSummary, CpsSummary, ProjectCostRow, DelegationSummary, ImprestAgeing } from '../components/dashboard/founder/types'
+import type { FilterState, HeadlineKpi, FinanceSummary, CpsSummary, ProjectCostRow, DelegationSummary, ImprestAgeing, CpsPrAgeing } from '../components/dashboard/founder/types'
 import { useFounderRealtime } from '../components/dashboard/founder/useFounderRealtime'
 
 // Heavy sections — lazy-loaded so initial paint is fast
@@ -19,6 +19,7 @@ const CpsSection               = lazy(() => import('../components/dashboard/foun
 const ProjectCostsSection      = lazy(() => import('../components/dashboard/founder/ProjectCostsSection').then(m => ({ default: m.ProjectCostsSection })))
 const DelegationAnalyticsSection = lazy(() => import('../components/dashboard/founder/DelegationAnalyticsSection').then(m => ({ default: m.DelegationAnalyticsSection })))
 const ImprestAgeingSection     = lazy(() => import('../components/dashboard/founder/ImprestAgeingSection').then(m => ({ default: m.ImprestAgeingSection })))
+const CpsPrAgeingSection       = lazy(() => import('../components/dashboard/founder/CpsPrAgeingSection').then(m => ({ default: m.CpsPrAgeingSection })))
 const AttendanceSection       = lazy(() => import('../components/dashboard/founder/AttendanceSection').then(m => ({ default: m.AttendanceSection })))
 // Below-fold unified Work Score board (single company-wide leaderboard)
 const RecognitionStrip = lazy(() => import('../components/dashboard/RecognitionStrip').then(m => ({ default: m.RecognitionStrip })))
@@ -191,6 +192,22 @@ function useImprestAgeing(filters: FilterState, enabled: boolean) {
   })
 }
 
+function useCpsPrAgeing(filters: FilterState, enabled: boolean) {
+  return useQuery({
+    queryKey: ['founder_cps_pr_ageing', filters.site],
+    enabled,
+    staleTime: 60_000,
+    refetchInterval: 90_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('founder_cps_pr_ageing', {
+        p_project: filters.site,
+      })
+      if (error) throw error
+      return (data ?? null) as CpsPrAgeing | null
+    },
+  })
+}
+
 function useEmployees(enabled: boolean) {
   return useQuery({
     queryKey: ['employees_list'],
@@ -255,6 +272,7 @@ export function FounderDashboard() {
   const projectsQ  = useProjectCosts(filters, allowed)
   const delQ       = useDelegationSummary(filters, allowed)
   const ageingQ    = useImprestAgeing(filters, allowed)
+  const cpsPrAgeingQ = useCpsPrAgeing(filters, allowed)
   const employeesQ = useEmployees(allowed)
   const sitesQ     = useSites(allowed)
 
@@ -364,6 +382,13 @@ export function FounderDashboard() {
         <Suspense fallback={<SectionSkeleton />}>
           <CpsSection data={cpsQ.data ?? null} loading={cpsQ.isLoading} period={filters.period} project={filters.site} />
         </Suspense>
+
+        {/* ── CPS PR Ageing — which procurement head a PR is stuck with, and for how long ── */}
+        <DeferUntilVisible>
+          <Suspense fallback={<SectionSkeleton />}>
+            <CpsPrAgeingSection data={cpsPrAgeingQ.data ?? null} loading={cpsPrAgeingQ.isLoading} />
+          </Suspense>
+        </DeferUntilVisible>
 
         {/* ── Per-Project Cost Rollup — deferred until near viewport ── */}
         <DeferUntilVisible>
