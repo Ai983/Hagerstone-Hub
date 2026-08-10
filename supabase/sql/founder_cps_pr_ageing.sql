@@ -7,8 +7,16 @@
 -- with a procurement head anymore.
 --
 -- Owner resolution: cps_purchase_requisitions.assigned_to_user_id is the PR's direct owner.
--- If that's ever null (legacy rows), fall back to the project's assigned procurement head via
+-- If that's null (legacy rows), fall back to the project's assigned procurement head via
 -- cps_project_assignments. Only if both are null does it show "Unassigned — procurement pool".
+--
+-- IMPORTANT (fixed 2026-08-10): cps_project_assignments.assigned_to_user_id is the project's
+-- site REQUESTOR, not its procurement head — e.g. Mohit Sharma and Shubham Rajput both have
+-- role='requestor' but were showing up as "owners" via this fallback before the fix. Both
+-- fallback joins are now restricted to cps_users.role = 'procurement_head' so a requestor can
+-- never be mistaken for the procurement head holding the PR. Verified live: 2 of 40 stuck PRs
+-- correctly fell back to "Unassigned — procurement pool" after the fix (their project's only
+-- assigned contact is a requestor, not a procurement head).
 --
 -- Run this in the Supabase SQL editor (or via mcp__claude_ai_Supabase__execute_sql) against
 -- project tpfvnerrjhqwipyonngf. Not auto-applied — no supabase/migrations/ in this repo; RPCs
@@ -42,10 +50,12 @@ BEGIN
       ON req.id = pr.requested_by
     LEFT JOIN cps.cps_users owner_direct
       ON owner_direct.id = pr.assigned_to_user_id
+     AND owner_direct.role = 'procurement_head'
     LEFT JOIN cps.cps_project_assignments pa
       ON pa.project_code = pr.project_code
     LEFT JOIN cps.cps_users owner_proj
       ON owner_proj.id = pa.assigned_to_user_id
+     AND owner_proj.role = 'procurement_head'
     WHERE pr.status IN ('pending', 'rfq_created')
       AND (p_project IS NULL OR pr.project_code = p_project)
   ),
@@ -141,7 +151,10 @@ GRANT EXECUTE ON FUNCTION public.founder_cps_pr_ageing(text) TO authenticated;
 --   SELECT public.founder_cps_pr_ageing(NULL);
 --   -- kpis.stuck_count should equal:
 --   SELECT count(*) FROM cps.cps_purchase_requisitions WHERE status IN ('pending','rfq_created');
---   -- confirm no PR resolves to "Unassigned — procurement pool" (per Aniket, none should as of 2026-08):
---   SELECT ref, owner FROM jsonb_to_recordset(
---     (SELECT items FROM public.founder_cps_pr_ageing(NULL) ...)  -- or just eyeball the items array
---   ) AS x(ref text, owner text) WHERE owner = 'Unassigned — procurement pool';
+--   -- by_owner should only ever contain names with role='procurement_head', or the literal
+--   -- "Unassigned — procurement pool" string. If any other name appears, a role got misused.
+--   SELECT DISTINCT owner FROM cps.cps_users u
+--   RIGHT JOIN LATERAL jsonb_to_recordset(
+--     (SELECT items FROM public.founder_cps_pr_ageing(NULL))
+--   ) AS x(owner text) ON u.name = x.owner
+--   WHERE u.role IS DISTINCT FROM 'procurement_head' AND x.owner <> 'Unassigned — procurement pool';
