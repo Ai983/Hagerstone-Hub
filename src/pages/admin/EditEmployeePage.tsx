@@ -67,7 +67,7 @@ export function EditEmployeePage() {
     enabled: !!id,
   })
 
-  const { data: moduleAccess } = useQuery({
+  const { data: moduleAccess, isLoading: modulesLoading } = useQuery({
     queryKey: ['employee-modules', id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -163,10 +163,22 @@ export function EditEmployeePage() {
       queryClient.invalidateQueries({ queryKey: ['employee', id] })
       navigate('/admin/employees')
     },
-    onError: () => toast.error('Failed to update employee'),
+    // Surface what actually failed. This used to swallow the error entirely,
+    // so a rejected save (RLS, a constraint, a failing sync RPC) looked
+    // identical to a button that did nothing.
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e)
+      console.error('Employee update failed:', e)
+      toast.error(`Failed to update employee: ${msg}`)
+    },
   })
 
-  if (isLoading) {
+  // Wait for BOTH queries. reset() below only fires once both have landed, so
+  // rendering on the employee query alone showed the form with its bare
+  // defaultValues — Role empty, Finance/CPS role reading "No access" — and a
+  // Radix Select whose value arrives after mount keeps showing that stale
+  // display. Anyone who then hit Save was submitting the placeholder values.
+  if (isLoading || modulesLoading) {
     return (
       <div className="min-h-screen bg-amber-50 flex items-center justify-center">
         <div className="text-stone-400 text-sm animate-pulse">Loading...</div>
@@ -187,7 +199,20 @@ export function EditEmployeePage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-6 py-8">
-        <form onSubmit={handleSubmit(d => updateMutation.mutate(d))} className="space-y-6">
+        {/* Only `name` renders its own error message, so any other invalid field
+            made Save look like a dead button. Report whatever failed instead. */}
+        <form
+          onSubmit={handleSubmit(
+            d => updateMutation.mutate(d),
+            invalid => {
+              const fields = Object.entries(invalid)
+                .map(([field, err]) => `${field}${(err as { message?: string })?.message ? ` (${(err as { message?: string }).message})` : ''}`)
+              console.error('Employee form validation failed:', invalid)
+              toast.error(`Can't save — check: ${fields.join(', ')}`)
+            },
+          )}
+          className="space-y-6"
+        >
           <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-medium text-stone-700 text-sm">Personal Details</h2>
