@@ -44,7 +44,7 @@ const FINANCE_ROLE_OPTS: [string, string][] = [
 ]
 const CPS_ROLE_OPTS: [string, string][] = [
   ['none', 'No access'], ['requestor', 'Requestor'], ['procurement_head', 'Procurement Head'], ['management', 'Management'],
-  ['accounts_team', 'Accounts Team'], ['design_team', 'Design Team'], ['it_head', 'IT Head'],
+  ['accounts_team', 'Accounts Team'], ['design_team', 'Design Team'], ['it_head', 'IT Head'], ['vendor_registrar', 'Vendor Registration'],
 ]
 
 export function EditEmployeePage() {
