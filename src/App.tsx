@@ -23,6 +23,9 @@ import { LeaderboardPage } from './pages/LeaderboardPage'
 import { EmployeePage } from './pages/EmployeePage'
 import { LeadershipRoute } from './components/LeadershipRoute'
 import { PublicAgeingReport } from './pages/PublicAgeingReport'
+import { SnagRoute } from './components/SnagRoute'
+import { SnagsPage } from './pages/snags/SnagsPage'
+import { SnagFormPage } from './pages/snags/SnagFormPage'
 
 const queryClient = new QueryClient()
 
@@ -33,6 +36,11 @@ export default function App() {
         <Toaster position="top-right" richColors />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          {/* Genuinely public — external clients open this from a WhatsApp link
+              with no login. Deliberately NOT wrapped in a guard; the per-project
+              token in ?t= is the credential, checked by the snag-intake function. */}
+          <Route path="/s/snag" element={<SnagFormPage />} />
 
           <Route path="/r/ageing" element={
             <FounderSpendRoute>
@@ -118,6 +126,12 @@ export default function App() {
               <LeaderboardPage />
             </LeadershipRoute>
           } />
+          <Route path="/snags" element={
+            <SnagRoute>
+              <SnagsPage />
+            </SnagRoute>
+          } />
+
           <Route path="/employee/:id" element={
             <ProtectedRoute>
               <EmployeePage />

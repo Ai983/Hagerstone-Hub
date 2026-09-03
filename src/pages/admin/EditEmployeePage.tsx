@@ -29,6 +29,9 @@ const schema = z.object({
   cps_active: z.boolean(),
   cps_link_email: z.string().optional(),
   is_active: z.boolean(),
+  snag_viewer: z.boolean(),
+  snag_owner: z.boolean(),
+  snag_notify: z.boolean(),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
@@ -85,6 +88,7 @@ export function EditEmployeePage() {
     defaultValues: {
       is_active: true,
       staff_type: 'office',
+      snag_viewer: false, snag_owner: false, snag_notify: false,
       finance_role: 'none', finance_active: true, finance_link_email: '',
       cps_role: 'none', cps_active: true, cps_link_email: '',
       module_access: MODULE_REGISTRY.map(m => ({ module_id: m.id, enabled: false })),
@@ -106,6 +110,9 @@ export function EditEmployeePage() {
         cps_active: employee.cps_active ?? true,
         cps_link_email: employee.cps_link_email ?? '',
         is_active: employee.is_active,
+        snag_viewer: employee.snag_viewer ?? false,
+        snag_owner: employee.snag_owner ?? false,
+        snag_notify: employee.snag_notify ?? false,
         module_access: MODULE_REGISTRY.map(m => ({
           module_id: m.id,
           enabled: moduleAccess.find(ma => ma.module_id === m.id)?.can_access ?? false,
@@ -141,6 +148,9 @@ export function EditEmployeePage() {
           cps_active: data.cps_active,
           cps_link_email: data.cps_link_email || null,
           is_active: data.is_active,
+          snag_viewer: data.snag_viewer,
+          snag_owner: data.snag_owner,
+          snag_notify: data.snag_notify,
         })
         .eq('id', id)
       if (empError) throw empError
@@ -359,6 +369,31 @@ export function EditEmployeePage() {
                   </Select>
                 )} />
                 <Input placeholder="Linked CPS email (only if different)" {...register('cps_link_email')} className="text-xs" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Snags</Label>
+              <p className="text-xs text-stone-500 -mt-1">
+                Post-handover client defect reports. Access is per-person, so this
+                list can change without a deploy.
+              </p>
+              <div className="space-y-2">
+                {([
+                  ['snag_viewer', 'View snags', 'Can open the Snags page (read-only).'],
+                  ['snag_owner', 'Manage snags', 'Can update status, add notes and close. Implies view.'],
+                  ['snag_notify', 'WhatsApp alerts', 'Gets a WhatsApp when a client submits a new snag.'],
+                ] as const).map(([name, label, hint]) => (
+                  <Controller key={name} name={name} control={control} render={({ field }) => (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-stone-700">{label}</div>
+                        <div className="text-xs text-stone-500">{hint}</div>
+                      </div>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </div>
+                  )} />
+                ))}
               </div>
             </div>
 

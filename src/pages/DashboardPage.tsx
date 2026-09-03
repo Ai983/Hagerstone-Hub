@@ -3,8 +3,9 @@ import { useModules } from '../hooks/useModules'
 import { MODULE_REGISTRY } from '../config/modules'
 import { ModuleCard } from '../components/ModuleCard'
 import { Button } from '../components/ui/button'
-import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban, ClipboardCheck, Trophy, UserRound, Radar, Wallet } from 'lucide-react'
+import { Settings, LogOut, LineChart, Sun, ClipboardList, BarChart2, FolderKanban, ClipboardCheck, Trophy, UserRound, Radar, Wallet, Wrench } from 'lucide-react'
 import { canViewFounderSpend } from '../config/founderSpend'
+import { canViewSnags } from '../lib/snags'
 import { isLeadership } from '../components/LeadershipRoute'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -45,6 +46,7 @@ export function DashboardPage() {
     { key: 'approvals', label: 'Approvals',    Icon: ClipboardCheck, show: role === 'founder' || isAdmin, onClick: () => navigate('/approvals') },
     { key: 'founder',   label: 'Overview',     Icon: LineChart,      show: role === 'founder' || isAdmin, onClick: () => navigate('/founder') },
     { key: 'spend',     label: 'Project Spend', Icon: Wallet,        show: canViewFounderSpend(employee), onClick: () => navigate('/founder/spend') },
+    { key: 'snags',     label: 'Snags',        Icon: Wrench,         show: canViewSnags(employee), onClick: () => navigate('/snags') },
     { key: 'command',   label: 'Command Center', Icon: Radar,        show: false, onClick: () => navigate('/command-center') },
     { key: 'admin',     label: 'Admin',        Icon: Settings,       show: isAdmin, onClick: () => navigate('/admin/employees') },
     { key: 'projects',  label: 'Projects',     Icon: FolderKanban,   show: isAdmin, onClick: () => navigate('/admin/projects') },

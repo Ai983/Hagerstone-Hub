@@ -29,6 +29,9 @@ const schema = z.object({
   cps_role: z.string(),
   cps_active: z.boolean(),
   cps_link_email: z.string().optional(),
+  snag_viewer: z.boolean(),
+  snag_owner: z.boolean(),
+  snag_notify: z.boolean(),
   module_access: z.array(z.object({
     module_id: z.string(),
     enabled: z.boolean(),
@@ -62,6 +65,7 @@ export function AddEmployeePage() {
       staff_type: 'site',
       finance_role: 'none', finance_active: true, finance_link_email: '',
       cps_role: 'none', cps_active: true, cps_link_email: '',
+      snag_viewer: false, snag_owner: false, snag_notify: false,
       module_access: MODULE_REGISTRY.map(m => ({
         module_id: m.id,
         enabled: ROLE_DEFAULT_MODULES['site_engineer'].includes(m.id),
@@ -110,6 +114,9 @@ export function AddEmployeePage() {
         cps_role: data.cps_role === 'none' ? null : data.cps_role,
         cps_active: data.cps_active,
         cps_link_email: data.cps_link_email || null,
+        snag_viewer: data.snag_viewer,
+        snag_owner: data.snag_owner,
+        snag_notify: data.snag_notify,
       }).eq('id', created.employee.id)
       await supabase.rpc('sync_employee_systems', { p_employee_id: created.employee.id })
 
@@ -344,6 +351,31 @@ export function AddEmployeePage() {
                   </Select>
                 )} />
                 <Input placeholder="Linked CPS email (only if different)" {...register('cps_link_email')} className="text-xs" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Snags</Label>
+              <p className="text-xs text-stone-400">
+                Post-handover client defect reports. Off by default — most people
+                don't need it, and it can be granted later from Edit Employee.
+              </p>
+              <div className="space-y-2">
+                {([
+                  ['snag_viewer', 'View snags', 'Can open the Snags page (read-only).'],
+                  ['snag_owner', 'Manage snags', 'Can update status, add notes and close. Implies view.'],
+                  ['snag_notify', 'WhatsApp alerts', 'Gets a WhatsApp when a client submits a new snag.'],
+                ] as const).map(([name, label, hint]) => (
+                  <Controller key={name} name={name} control={control} render={({ field }) => (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-stone-700">{label}</div>
+                        <div className="text-xs text-stone-500">{hint}</div>
+                      </div>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </div>
+                  )} />
+                ))}
               </div>
             </div>
 

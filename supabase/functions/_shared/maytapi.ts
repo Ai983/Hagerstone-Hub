@@ -1,6 +1,12 @@
-// Shared Maytapi WhatsApp sender for Hub edge functions.
-// Product/phone match the working n8n flows (WF1 etc.); the API key lives ONLY in
-// the MAYTAPI_API_KEY edge secret (this repo is public — never hardcode the key).
+// Shared WhatsApp sender for Hub edge functions.
+//
+// TRANSPORT: the Plumbline gateway (self-hosted Baileys on Railway) when
+// WA_GATEWAY_URL + WA_GATEWAY_KEY are set, else legacy Maytapi. Production runs
+// on the gateway; the Maytapi path is kept only as a rollback. Set
+// MAYTAPI_PHONE_ID=hagerstone-biz and MAYTAPI_GRP_PHONE_ID=hagerstone-grp — on
+// the gateway those IDs are session ids, and productId is ignored entirely.
+//
+// Keys live ONLY in edge secrets (this repo is public — never hardcode them).
 //
 // Unlike the old inline callers, this READS the Maytapi JSON response: Maytapi
 // returns HTTP 200 even when a send logically fails ({success:false}), so a bare
@@ -35,23 +41,48 @@ export interface WhatsAppResult {
   raw: unknown
 }
 
-/** Internal helper — calls any Maytapi phone's sendMessage endpoint. */
+/**
+ * Internal helper — sends via the Plumbline gateway when it is configured, and
+ * falls back to Maytapi otherwise.
+ *
+ * Plumbline (self-hosted Baileys on Railway) replaced Maytapi and deliberately
+ * speaks the same contract — same path shape, same `x-maytapi-key` header, same
+ * `{success, data:{msgId}}` response — so the cutover is a URL + key swap and is
+ * reversible by unsetting the two env vars.
+ *
+ * One difference that callers must not misread: for a text send the gateway
+ * QUEUES the message and returns immediately, so `ok` means accepted, not
+ * delivered, and `msgId` is the `wa_messages.id` row UUID (not a WhatsApp id).
+ * Delivery truth lives in `wa_messages.status`.
+ */
 async function maytapiSend(
   productId: string,
   phoneId: string,
   apiKey: string,
   payload: Record<string, unknown>,
 ): Promise<WhatsAppResult> {
-  if (!apiKey) {
-    console.error('[maytapi] API key secret is not set')
+  const gatewayUrl = Deno.env.get('WA_GATEWAY_URL')
+  const gatewayKey = Deno.env.get('WA_GATEWAY_KEY')
+  const useGateway = !!gatewayUrl && !!gatewayKey
+
+  // Only Maytapi needs its own API key. Guarding on apiKey unconditionally would
+  // refuse to send on a gateway-only deployment, where MAYTAPI_API_KEY is unset.
+  if (!useGateway && !apiKey) {
+    console.error('[whatsapp] no gateway configured and Maytapi API key is not set')
     return { ok: false, msgId: null, raw: null }
   }
+
+  const endpoint = useGateway
+    ? `${gatewayUrl}/maytapi/${productId}/${phoneId}/sendMessage`
+    : `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`
+  const sendKey = useGateway ? gatewayKey! : apiKey
+
   try {
     const res = await fetch(
-      `https://api.maytapi.com/api/${productId}/${phoneId}/sendMessage`,
+      endpoint,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-maytapi-key': sendKey },
         body: JSON.stringify(payload),
       },
     )
@@ -61,10 +92,10 @@ async function maytapiSend(
     const ok = res.ok && body?.success === true
     const msgId =
       (data && typeof data === 'object' ? (data.msgId ?? data.msg_id ?? data.id) : (typeof data === 'string' ? data : null)) as string | null ?? null
-    if (!ok) console.error('[maytapi] send failed', { status: res.status, body })
+    if (!ok) console.error('[whatsapp] send failed', { via: useGateway ? 'gateway' : 'maytapi', status: res.status, body })
     return { ok, msgId, raw: body }
   } catch (e) {
-    console.error('[maytapi] send threw', String(e))
+    console.error('[whatsapp] send threw', { via: useGateway ? 'gateway' : 'maytapi', error: String(e) })
     return { ok: false, msgId: null, raw: null }
   }
 }

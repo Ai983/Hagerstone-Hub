@@ -38,6 +38,13 @@ export interface Employee {
    *  gamification (assign company-wide, verify any dept, org analytics) WITHOUT
    *  finance/CPS or admin-panel access. Granted per-employee. */
   del_super: boolean
+  /** Read-only access to the Snags page (post-handover client defect reports). */
+  snag_viewer: boolean
+  /** Snags page access PLUS the right to update status and close. */
+  snag_owner: boolean
+  /** Receives the WhatsApp alert when a client submits a new snag. Deliberately
+   *  separate from snag_owner: Ritu is alerted but does not work the queue. */
+  snag_notify: boolean
   /** Office vs site classification — drives follow-up cadence (future). */
   staff_type: 'office' | 'site' | 'both'
   /** Hub-authoritative per-system roles/blocks (synced to finance.employees / cps.cps_users). */
