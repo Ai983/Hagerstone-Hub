@@ -15,10 +15,8 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../../components/ui/table'
-import { FolderPlus, Edit, Tag, ArrowLeft, Plus, X, Link as LinkIcon, Copy } from 'lucide-react'
+import { FolderPlus, Edit, Tag, ArrowLeft, Plus, X } from 'lucide-react'
 import type { Project, ProjectAlias, ProjectCategory } from '../../types'
-import { useAuth } from '../../hooks/useAuth'
-import { fetchFormLinks, createFormLink, revokeFormLink, snagFormUrl } from '../../lib/snags'
 
 const CATEGORY_LABELS: Record<ProjectCategory, string> = {
   project: 'Project',
@@ -59,9 +57,6 @@ export function ProjectsPage() {
   const [aliasFor, setAliasFor] = useState<Project | null>(null)
   const [newAlias, setNewAlias] = useState('')
 
-  // snag form-link dialog
-  const [snagLinkFor, setSnagLinkFor] = useState<Project | null>(null)
-  const { employee } = useAuth()
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -168,45 +163,6 @@ export function ProjectsPage() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  // ── Snag form links ─────────────────────────────────────────────────────────
-  // One revocable secret link per project, WhatsApped to the client after
-  // handover. Revoking is why these live in their own table rather than as a
-  // column on the project.
-  const { data: snagLinks = [] } = useQuery({
-    queryKey: ['snag_form_links', snagLinkFor?.id],
-    queryFn: () => fetchFormLinks(snagLinkFor!.id),
-    enabled: !!snagLinkFor,
-  })
-
-  const createLinkMutation = useMutation({
-    mutationFn: async () => createFormLink(snagLinkFor!.id, employee!.id),
-    onSuccess: () => {
-      toast.success('Snag link created')
-      queryClient.invalidateQueries({ queryKey: ['snag_form_links'] })
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  const revokeLinkMutation = useMutation({
-    mutationFn: revokeFormLink,
-    onSuccess: () => {
-      toast.success('Link revoked — it will no longer open')
-      queryClient.invalidateQueries({ queryKey: ['snag_form_links'] })
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  const copyLink = async (token: string) => {
-    try {
-      await navigator.clipboard.writeText(snagFormUrl(token))
-      toast.success('Link copied — paste it into WhatsApp')
-    } catch {
-      toast.error('Could not copy. Select the link and copy it manually.')
-    }
-  }
-
-  const activeLink = snagLinks.find(l => l.is_active)
-
   const openAdd = () => { setEditing(null); setForm(EMPTY_FORM); setFormOpen(true) }
   const openEdit = (p: Project) => {
     setEditing(p)
@@ -306,9 +262,6 @@ export function ProjectsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end">
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSnagLinkFor(p)}>
-                          <LinkIcon size={12} className="mr-1" /> Snag link
-                        </Button>
                         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => openEdit(p)}>
                           <Edit size={12} className="mr-1" /> Edit
                         </Button>
@@ -413,73 +366,6 @@ export function ProjectsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Snag form link — the client-facing report link for this project */}
-      <Dialog open={!!snagLinkFor} onOpenChange={o => { if (!o) setSnagLinkFor(null) }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Snag link — {snagLinkFor?.name}</DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-stone-500 -mt-2">
-            Send this to the client after handover. It opens a form where they can
-            describe an issue and attach photos or videos — no login needed. Each
-            submission appears on the Snags page and alerts the team on WhatsApp.
-          </p>
-
-          {activeLink ? (
-            <div className="space-y-3">
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <div className="font-mono text-[11px] text-stone-600 break-all">
-                  {snagFormUrl(activeLink.token)}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm" className="bg-amber-800 hover:bg-amber-700 text-xs"
-                    onClick={() => copyLink(activeLink.token)}
-                  >
-                    <Copy size={12} className="mr-1" /> Copy link
-                  </Button>
-                  <Button
-                    size="sm" variant="ghost" className="text-xs text-stone-500"
-                    onClick={() => revokeLinkMutation.mutate(activeLink.id)}
-                    disabled={revokeLinkMutation.isPending}
-                  >
-                    Revoke
-                  </Button>
-                </div>
-              </div>
-              <p className="text-[11px] text-stone-400">
-                Revoke if the link is shared beyond the client — it stops working
-                immediately, and you can generate a fresh one. Snags already
-                submitted are unaffected.
-              </p>
-            </div>
-          ) : (
-            <div className="text-center py-6 space-y-3">
-              <div className="text-sm text-stone-500">No active link for this project yet.</div>
-              <Button
-                className="bg-amber-800 hover:bg-amber-700 text-sm"
-                onClick={() => createLinkMutation.mutate()}
-                disabled={createLinkMutation.isPending}
-              >
-                <LinkIcon size={14} className="mr-2" /> Generate snag link
-              </Button>
-            </div>
-          )}
-
-          {snagLinks.some(l => !l.is_active) && (
-            <div className="border-t border-stone-100 pt-3">
-              <div className="text-[11px] font-semibold text-stone-500 mb-1.5">Revoked links</div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {snagLinks.filter(l => !l.is_active).map(l => (
-                  <div key={l.id} className="text-[11px] text-stone-400 font-mono truncate">
-                    …{l.token.slice(-8)} · revoked {l.revoked_at ? new Date(l.revoked_at).toLocaleDateString('en-IN') : ''}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

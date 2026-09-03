@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Paperclip } from 'lucide-react'
+import { ArrowLeft, Paperclip, Link as LinkIcon, Copy } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import {
   fetchSnags, fetchSnagEvents, fetchWaStatus,
   updateSnagStatus, addSnagComment, canManageSnags,
+  fetchAllFormLinks, createFormLink, revokeFormLink, snagFormUrl,
 } from '../../lib/snags'
+import { fetchActiveProjects } from '../../lib/delegation'
 import {
   SNAG_STATUSES, SNAG_STATUS_LABELS, SNAG_PRIORITY_LABELS, SNAG_NEXT_STATUS,
 } from '../../types/snags'
@@ -61,9 +63,11 @@ export function SnagsPage() {
   const { employee } = useAuth()
   const canManage = canManageSnags(employee)
 
+  const [tab, setTab] = useState<'queue' | 'links'>('queue')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('open_only')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [linkSearch, setLinkSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // Deep link from the WhatsApp alert: /snags?ref=SNG-… opens that snag directly.
   // Held as a ref string because the row isn't loaded yet on first render.
@@ -110,6 +114,67 @@ export function SnagsPage() {
       queryClient.invalidateQueries({ queryKey: ['snag_events'] })
     },
     onError: (err: Error) => toast.error(err.message),
+  })
+
+  // ── Client links ────────────────────────────────────────────────────────────
+  // Lives here rather than on the admin Projects page so the whole snag system
+  // is one place, and so Saksham can issue links himself without admin access
+  // (RLS gates this on can_manage_snags, which he has).
+  const { data: projects = [] } = useQuery({
+    queryKey: ['snag_projects'],
+    queryFn: fetchActiveProjects,
+    enabled: tab === 'links',
+  })
+  const { data: formLinks = [] } = useQuery({
+    queryKey: ['snag_form_links'],
+    queryFn: fetchAllFormLinks,
+    enabled: tab === 'links',
+  })
+
+  // project_id → its active link (fetchAllFormLinks is newest-first, so the
+  // first active row per project is the current one).
+  const activeLinkByProject = useMemo(() => {
+    const m = new Map<string, typeof formLinks[number]>()
+    for (const l of formLinks) if (l.is_active && !m.has(l.project_id)) m.set(l.project_id, l)
+    return m
+  }, [formLinks])
+
+  const snagCountByProject = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of snags) m.set(s.project_id, (m.get(s.project_id) ?? 0) + 1)
+    return m
+  }, [snags])
+
+  const createLinkMutation = useMutation({
+    mutationFn: async (projectId: string) => createFormLink(projectId, employee!.id),
+    onSuccess: () => {
+      toast.success('Link created — copy it and send to the client')
+      queryClient.invalidateQueries({ queryKey: ['snag_form_links'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const revokeLinkMutation = useMutation({
+    mutationFn: revokeFormLink,
+    onSuccess: () => {
+      toast.success('Link revoked — it will no longer open')
+      queryClient.invalidateQueries({ queryKey: ['snag_form_links'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const copyLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(snagFormUrl(token))
+      toast.success('Link copied — paste it into WhatsApp')
+    } catch {
+      toast.error('Could not copy. Select the link text and copy it manually.')
+    }
+  }
+
+  const filteredProjects = projects.filter((p) => {
+    const q = linkSearch.toLowerCase()
+    return q === '' || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)
   })
 
   const commentMutation = useMutation({
@@ -161,12 +226,114 @@ export function SnagsPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+        <div className="flex gap-2">
+          {([
+            ['queue', 'Snag Queue'],
+            ['links', 'Client Links'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id} onClick={() => setTab(id)}
+              className={`text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                tab === id
+                  ? 'bg-amber-800 text-white border-amber-800'
+                  : 'bg-white text-stone-600 border-stone-200 hover:border-amber-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {!canManage && (
           <div className="text-xs text-stone-500 bg-white border border-stone-100 rounded-lg px-3 py-2">
             You have view-only access to snags.
           </div>
         )}
 
+        {tab === 'links' ? (
+          <>
+            <div className="bg-white rounded-xl border border-stone-100 p-4 text-xs text-stone-600">
+              <div className="font-semibold text-stone-800 mb-1">How this works</div>
+              Generate a link for a project, then WhatsApp it to that client. They open it
+              with no login, describe the problem and attach photos or video. Every
+              submission lands in the Snag Queue and alerts the team.
+              <span className="text-stone-400"> Revoke a link if it spreads beyond the client — snags already submitted are unaffected.</span>
+            </div>
+
+            <Input
+              placeholder="Search projects…"
+              value={linkSearch} onChange={(e) => setLinkSearch(e.target.value)}
+              className="sm:max-w-xs bg-white"
+            />
+
+            <div className="bg-white rounded-xl border border-stone-100 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Client link</TableHead>
+                    <TableHead className="text-right">Snags</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredProjects.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center text-stone-400 py-8 text-sm">No projects match.</TableCell></TableRow>
+                  ) : filteredProjects.map((p) => {
+                    const link = activeLinkByProject.get(p.id)
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell>
+                          <div className="text-sm text-stone-800">{p.name}</div>
+                          <div className="text-[11px] text-stone-400 font-mono">{p.code}</div>
+                        </TableCell>
+                        <TableCell className="max-w-md">
+                          {link ? (
+                            <div className="font-mono text-[11px] text-stone-500 break-all">
+                              {snagFormUrl(link.token)}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-stone-400">No link yet</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-stone-500">
+                          {snagCountByProject.get(p.id) ?? 0}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            {!canManage ? (
+                              <span className="text-[11px] text-stone-400">View only</span>
+                            ) : link ? (
+                              <>
+                                <Button size="sm" variant="ghost" className="h-7 text-xs"
+                                  onClick={() => copyLink(link.token)}>
+                                  <Copy size={12} className="mr-1" /> Copy
+                                </Button>
+                                <Button size="sm" variant="ghost"
+                                  className="h-7 text-xs text-stone-400 hover:text-red-600"
+                                  onClick={() => revokeLinkMutation.mutate(link.id)}
+                                  disabled={revokeLinkMutation.isPending}>
+                                  Revoke
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="sm" className="h-7 text-xs bg-amber-800 hover:bg-amber-700"
+                                onClick={() => createLinkMutation.mutate(p.id)}
+                                disabled={createLinkMutation.isPending}>
+                                <LinkIcon size={12} className="mr-1" /> Generate
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        ) : (
+        <>
         <div className="flex flex-col sm:flex-row gap-2">
           <Input
             placeholder="Search ref, title, client or project…"
@@ -246,6 +413,8 @@ export function SnagsPage() {
             </TableBody>
           </Table>
         </div>
+        </>
+        )}
       </main>
 
       <Dialog open={!!selected} onOpenChange={(o) => { if (!o) closeDialog() }}>

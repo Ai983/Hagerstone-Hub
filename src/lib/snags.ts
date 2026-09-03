@@ -107,11 +107,13 @@ export async function addSnagComment(
 
 // ── Form links ────────────────────────────────────────────────────────────────
 
-export async function fetchFormLinks(projectId: string): Promise<SnagFormLink[]> {
+/** Every link, for the Client Links tab. Small table (one row per project, plus
+ *  revoked history), so it's cheaper to fetch once and group in memory than to
+ *  query per project. */
+export async function fetchAllFormLinks(): Promise<SnagFormLink[]> {
   const { data, error } = await supabase
     .from('snag_form_links')
     .select('*')
-    .eq('project_id', projectId)
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as SnagFormLink[]
