@@ -34,8 +34,10 @@ CREATE TABLE IF NOT EXISTS public.snag_form_links (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id  uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   -- URL-safe, unguessable. encode(...,'base64') then made URL-safe and trimmed.
+  -- pgcrypto lives in the `extensions` schema on Supabase, so qualify it rather
+  -- than depend on whatever search_path happens to be in effect.
   token       text NOT NULL UNIQUE
-                DEFAULT translate(encode(gen_random_bytes(24), 'base64'), '+/=', '-_'),
+                DEFAULT translate(encode(extensions.gen_random_bytes(24), 'base64'), '+/=', '-_'),
   label       text,
   is_active   boolean NOT NULL DEFAULT true,
   created_by  uuid REFERENCES public.employees(id) ON DELETE SET NULL,
@@ -89,7 +91,7 @@ CREATE INDEX IF NOT EXISTS snag_reports_status_idx  ON public.snag_reports (stat
 CREATE INDEX IF NOT EXISTS snag_reports_project_idx ON public.snag_reports (project_id);
 
 CREATE OR REPLACE FUNCTION public.snag_reports_touch_updated_at()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN
   new.updated_at = now();
   RETURN new;
@@ -104,7 +106,7 @@ CREATE TRIGGER snag_reports_updated_at
 -- finance. Assigned in a BEFORE trigger so concurrent inserts can't collide on a
 -- read-then-write race; the UNIQUE constraint is the final backstop.
 CREATE OR REPLACE FUNCTION public.snag_reports_assign_ref()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
   day_key text := to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYYMMDD');
   next_n  integer;
@@ -190,8 +192,16 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
      AND public.can_view_snags();
 $$;
 
-REVOKE ALL ON FUNCTION public.snag_wa_status(uuid[]) FROM public, anon;
-GRANT EXECUTE ON FUNCTION public.snag_wa_status(uuid[]) TO authenticated;
+-- These are signed-in gates. They already return false for an anonymous caller
+-- (auth.uid() is null), but there is no reason to expose them on /rest/v1/rpc.
+-- Revoke from PUBLIC, not just anon — anon INHERITS execute through PUBLIC, so
+-- revoking from anon alone is a silent no-op.
+REVOKE EXECUTE ON FUNCTION public.snag_wa_status(uuid[]) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.can_view_snags()       FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.can_manage_snags()     FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.snag_wa_status(uuid[])  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_view_snags()        TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_manage_snags()      TO authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 6. RLS
