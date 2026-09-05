@@ -34,16 +34,21 @@ const TONE_COLOR: Record<string, string> = {
   ok:      'text-stone-500',
 }
 
-interface DeadlineInfo { label: string; tone: 'overdue' | 'today' | 'soon' | 'ok' }
+interface DeadlineInfo { label: string; sub: string | null; tone: 'overdue' | 'today' | 'soon' | 'ok' }
 
+// The column shows the actual calendar date ("5 Sep · 14:30"), not a relative
+// word — Ma'am reads this against her own diary, and "Aaj / Kal / 3d baaki" is
+// unusable for that. Lateness stays as a secondary hint on overdue rows only,
+// since that is the one case where the gap matters more than the date.
 function deadlineInfo(task: DelTask): DeadlineInfo {
   const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
   const diff = Math.round((new Date(task.task_date + 'T00:00:00Z').getTime() - new Date(todayStr + 'T00:00:00Z').getTime()) / 86400000)
-  const t = task.due_time ? ' ' + String(task.due_time).slice(0, 5) : ''
-  if (diff < 0)   return { label: `${Math.abs(diff)}d overdue`, tone: 'overdue' }
-  if (diff === 0) return { label: `Aaj${t}`, tone: 'today' }
-  if (diff === 1) return { label: `Kal${t}`, tone: 'soon' }
-  return { label: `${diff}d baaki`, tone: 'ok' }
+  const date = new Date(task.task_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+  const label = task.due_time ? `${date} · ${String(task.due_time).slice(0, 5)}` : date
+  if (diff < 0)   return { label, sub: `${Math.abs(diff)}d late`, tone: 'overdue' }
+  if (diff === 0) return { label, sub: null, tone: 'today' }
+  if (diff === 1) return { label, sub: null, tone: 'soon' }
+  return { label, sub: null, tone: 'ok' }
 }
 
 function fmtDay(s?: string | null): string {
@@ -206,7 +211,10 @@ export function EmployeeDelegationBoard() {
                             {t.on_behalf_of && <span className="text-[10px] text-stone-400">by {t.on_behalf_of}</span>}
                           </div>
                         </td>
-                        <td className={`${td} whitespace-nowrap`}><span className={`text-xs ${TONE_COLOR[dl.tone]}`}>⏰ {dl.label}</span></td>
+                        <td className={`${td} whitespace-nowrap`}>
+                          <span className={`text-xs ${TONE_COLOR[dl.tone]}`}>⏰ {dl.label}</span>
+                          {dl.sub && <span className="block text-[10px] text-red-500 font-medium">{dl.sub}</span>}
+                        </td>
                         <td className={`${td} text-center`}><FollowupCell task={t} slot={1} dl={dl} /></td>
                         <td className={`${td} text-center`}><FollowupCell task={t} slot={2} dl={dl} /></td>
                         <td className={`${td} text-center`}><FollowupCell task={t} slot={3} dl={dl} /></td>

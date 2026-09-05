@@ -7,7 +7,6 @@ import type { Employee } from '../../types'
 import { SearchableSelect, type SearchOption } from '../ui/SearchableSelect'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { Label } from '../ui/label'
 import { URGENCIES, URGENCY_BY_VALUE, type Urgency } from '../../lib/urgency'
 
 interface Props {
@@ -23,6 +22,9 @@ interface Row {
   id: number
   title: string
   assignedTo: string
+  /** Director this row is delegated on behalf of. Per-row: one sheet routinely
+   *  mixes Dhruv Sir's asks, Bhaskar Sir's, and Ma'am's own. */
+  onBehalfOf: string
   taskDate: string
   dueTime: string
   urgency: Urgency
@@ -37,6 +39,7 @@ function blankRow(assignedTo: string): Row {
     id: seq,
     title: '',
     assignedTo,
+    onBehalfOf: '',
     taskDate: new Date().toISOString().slice(0, 10),
     dueTime: '',
     urgency: 'normal',
@@ -62,7 +65,6 @@ export function DelegationSheet({ employee, teamMembers, onClose, onCreated }: P
       .map((m) => ({ value: m.auth_user_id ?? '', label: m.name, sublabel: (m.role ?? '').replace(/_/g, ' ') })),
   ]
 
-  const [onBehalfOf, setOnBehalfOf] = useState('')
   const [rows, setRows] = useState<Row[]>(() => [
     blankRow(canAssign ? '' : selfUid),
     blankRow(canAssign ? '' : selfUid),
@@ -100,7 +102,7 @@ export function DelegationSheet({ employee, teamMembers, onClose, onCreated }: P
           assigned_to: assignedTo,
           assigned_by: selfUid,
           custom_points: URGENCY_BY_VALUE[r.urgency].points,
-          on_behalf_of: assignedTo !== selfUid && onBehalfOf ? onBehalfOf : null,
+          on_behalf_of: assignedTo !== selfUid && r.onBehalfOf ? r.onBehalfOf : null,
           due_time: r.dueTime || null,
         })
       }),
@@ -143,23 +145,6 @@ export function DelegationSheet({ employee, teamMembers, onClose, onCreated }: P
           </button>
         </div>
 
-        {/* On-behalf-of (directors) — applies to every row assigned to someone else */}
-        {canAssign && (
-          <div className="px-5 pb-3 shrink-0">
-            <Label className="text-xs text-stone-500 mb-1.5 block font-medium">
-              Assigned by <span className="text-stone-400 font-normal">(director — optional, sab rows par lagega)</span>
-            </Label>
-            <select
-              value={onBehalfOf}
-              onChange={(e) => setOnBehalfOf(e.target.value)}
-              className="w-full sm:w-64 text-sm rounded-lg border border-input bg-background px-3 py-2.5 h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <option value="">— Koi nahi —</option>
-              {DIRECTORS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        )}
-
         {/* The sheet */}
         <div className="px-5 overflow-auto flex-1 pb-2">
           <table className="w-full text-sm border-separate border-spacing-y-1.5">
@@ -168,6 +153,7 @@ export function DelegationSheet({ employee, teamMembers, onClose, onCreated }: P
                 <th className="w-6 pr-1 font-semibold">#</th>
                 <th className="px-1 font-semibold min-w-[180px]">Kaam *</th>
                 {canAssign && <th className="px-1 font-semibold min-w-[160px]">Kisko *</th>}
+                {canAssign && <th className="px-1 font-semibold w-[130px]">Assigned by</th>}
                 <th className="px-1 font-semibold w-[140px]">Deadline</th>
                 <th className="px-1 font-semibold w-[100px]">Time</th>
                 <th className="px-1 font-semibold w-[140px]">Urgency</th>
@@ -197,6 +183,18 @@ export function DelegationSheet({ employee, teamMembers, onClose, onCreated }: P
                           placeholder="Naam…"
                           emptyText="Koi nahi mila"
                         />
+                      </td>
+                    )}
+                    {canAssign && (
+                      <td className="px-1">
+                        <select
+                          value={r.onBehalfOf}
+                          onChange={(e) => patchRow(r.id, { onBehalfOf: e.target.value })}
+                          className="w-full text-sm rounded-lg border border-input bg-background px-2 h-10 text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                        >
+                          <option value="">— Koi nahi —</option>
+                          {DIRECTORS.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
                       </td>
                     )}
                     <td className="px-1">
