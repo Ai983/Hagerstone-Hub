@@ -19,11 +19,6 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024
 const MAX_FILES = 10
 
-const CATEGORIES = [
-  'Civil / Finishing', 'Carpentry / Joinery', 'Electrical', 'Plumbing',
-  'HVAC', 'Painting', 'Flooring', 'Glass / Aluminium', 'Furniture', 'Other',
-]
-
 const PRIORITIES = [
   { value: 'low', label: 'Low — cosmetic, no rush' },
   { value: 'medium', label: 'Medium — needs attention' },
@@ -46,9 +41,9 @@ export function SnagFormPage() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
-  const [category, setCategory] = useState('')
   const [priority, setPriority] = useState('medium')
-  const [title, setTitle] = useState('')
+  // One free-text question, not a title + a description. The Hub's queue headline
+  // is derived server-side from the first sentence of this.
   const [description, setDescription] = useState('')
   const [files, setFiles] = useState<File[]>([])
 
@@ -111,8 +106,14 @@ export function SnagFormPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim() || !title.trim() || !description.trim()) {
-      setFormError('Please fill in your name, what the issue is, and a short description.')
+    if (!name.trim() || !description.trim()) {
+      setFormError('Please fill in your name and describe the problem.')
+      return
+    }
+    // Mandatory, and checked again server-side. Caught here so the client is told
+    // before we spend time uploading anything.
+    if (!files.length) {
+      setFormError('Please add at least one photo or video of the problem.')
       return
     }
     setSubmitting(true)
@@ -121,15 +122,18 @@ export function SnagFormPage() {
     try {
       // allSettled so one bad file can't sink a report the client has already
       // typed out — upload what we can and tell them what didn't make it.
-      let attachments: Attachment[] = []
       const failed: string[] = []
-      if (files.length) {
-        setProgress(`Uploading ${files.length} file(s)…`)
-        const results = await Promise.allSettled(files.map(uploadOne))
-        attachments = results
-          .filter((r): r is PromiseFulfilledResult<Attachment> => r.status === 'fulfilled')
-          .map((r) => r.value)
-        files.forEach((f, i) => { if (results[i].status === 'rejected') failed.push(f.name) })
+      setProgress(`Uploading ${files.length} file(s)…`)
+      const results = await Promise.allSettled(files.map(uploadOne))
+      const attachments = results
+        .filter((r): r is PromiseFulfilledResult<Attachment> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      files.forEach((f, i) => { if (results[i].status === 'rejected') failed.push(f.name) })
+
+      // An attachment is required, so "every upload failed" is a dead end rather
+      // than a partial success — say so instead of letting the server 400.
+      if (!attachments.length) {
+        throw new Error('Your photo/video could not be uploaded, so the report was not submitted. Please check your connection and try again.')
       }
 
       setProgress('Submitting your report…')
@@ -141,8 +145,7 @@ export function SnagFormPage() {
           reporter_name: name.trim(),
           reporter_phone: phone.trim(),
           reporter_email: email.trim(),
-          category, priority,
-          title: title.trim(),
+          priority,
           description: description.trim(),
           attachments,
         }),
@@ -247,40 +250,27 @@ export function SnagFormPage() {
 
       <div className="bg-white rounded-2xl border border-stone-100 p-4 sm:p-5 space-y-4">
         <div>
-          <label className={labelCls} htmlFor="title">What is the issue? <span className="text-red-500">*</span></label>
-          <input id="title" className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Water seepage on bedroom ceiling" required />
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls} htmlFor="category">Area / trade</label>
-            <select id="category" className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)}>
-              <option value="">Select…</option>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="priority">How urgent is it?</label>
-            <select id="priority" className={inputCls} value={priority} onChange={(e) => setPriority(e.target.value)}>
-              {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div>
           <label className={labelCls} htmlFor="description">Describe the problem <span className="text-red-500">*</span></label>
           <textarea
-            id="description" className={`${inputCls} min-h-[110px]`} value={description}
+            id="description" className={`${inputCls} min-h-[130px]`} value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Where exactly is it, when did you notice it, and what happens?"
+            placeholder="What is the issue, where exactly is it, and when did you notice it? e.g. Water seepage on the bedroom ceiling, near the window — started after last week's rain."
             required
           />
         </div>
 
         <div>
-          <label className={labelCls}>Photos or video</label>
+          <label className={labelCls} htmlFor="priority">How urgent is it?</label>
+          <select id="priority" className={inputCls} value={priority} onChange={(e) => setPriority(e.target.value)}>
+            {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className={labelCls}>Photos or video <span className="text-red-500">*</span></label>
           <p className="text-[11px] text-stone-400 mb-2">
-            Photos up to 10 MB, videos up to 50 MB. Up to {MAX_FILES} files — this helps our team come prepared.
+            At least one is required — it is how our team sees the problem before visiting.
+            Photos up to 10 MB, videos up to 50 MB. Up to {MAX_FILES} files.
           </p>
           <input
             ref={fileRef} type="file" multiple

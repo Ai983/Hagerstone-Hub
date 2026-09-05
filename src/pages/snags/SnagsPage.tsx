@@ -451,9 +451,6 @@ export function SnagsPage() {
                         : '—'}
                     </dd>
                   </div>
-                  {selected.category && (
-                    <div><dt className="text-stone-400">Area / trade</dt><dd className="text-stone-700">{selected.category}</dd></div>
-                  )}
                   {selected.reporter_email && (
                     <div><dt className="text-stone-400">Email</dt><dd className="text-stone-700 truncate">{selected.reporter_email}</dd></div>
                   )}

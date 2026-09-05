@@ -87,6 +87,18 @@ function str(v: unknown, max: number): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
 }
 
+/** The form asks the client one question ("describe the problem"), but
+ *  snag_reports.title is NOT NULL and is what the Hub queue lists. Derive a
+ *  headline from the first line/sentence rather than making the client write the
+ *  same thing twice. */
+function deriveTitle(description: string): string {
+  const firstLine = description.split('\n').map((l) => l.trim()).find(Boolean) ?? description
+  // Cut at the first sentence end if one lands within a sensible headline length.
+  const sentence = firstLine.match(/^(.{15,90}?[.!?])(\s|$)/)
+  const head = (sentence ? sentence[1] : firstLine).trim().replace(/[.\s]+$/, '')
+  return head.length > 90 ? `${head.slice(0, 89).trimEnd()}…` : head
+}
+
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
 
 serve(async (req) => {
@@ -169,16 +181,24 @@ serve(async (req) => {
   // ── Submit the snag ───────────────────────────────────────────────────────
   if (action === 'submit') {
     const reporterName = str(body.reporter_name, 120)
-    const title = str(body.title, 200)
     const description = str(body.description, 5000)
 
-    if (!reporterName || !title || !description) {
-      return json({ error: 'Your name, the issue title and a description are required.' }, 400)
+    if (!reporterName || !description) {
+      return json({ error: 'Your name and a description of the problem are required.' }, 400)
     }
 
     const priorityRaw = str(body.priority, 20).toLowerCase()
     const priority = PRIORITIES.includes(priorityRaw) ? priorityRaw : 'medium'
     const attachments = sanitizeAttachments(body.attachments)
+
+    // A photo or video is mandatory: a snag the team can't see is a snag they
+    // have to drive to the site to understand. Enforced here too, not just in
+    // the form — the form is only a convenience wrapper around this endpoint.
+    if (!attachments.length) {
+      return json({ error: 'Please attach at least one photo or video of the problem.' }, 400)
+    }
+
+    const title = deriveTitle(description)
 
     const { data: snag, error: insertErr } = await supabase
       .from('snag_reports')
@@ -188,7 +208,6 @@ serve(async (req) => {
         reporter_name: reporterName,
         reporter_phone: str(body.reporter_phone, 30) || null,
         reporter_email: str(body.reporter_email, 200) || null,
-        category: str(body.category, 80) || null,
         priority,
         title,
         description,
@@ -229,12 +248,12 @@ serve(async (req) => {
         `*Project:* ${project.name ?? '—'}${project.code ? ` (${project.code})` : ''}`,
         `*Client:* ${reporterName}${body.reporter_phone ? ` · ${str(body.reporter_phone, 30)}` : ''}`,
         `*Priority:* ${priority.toUpperCase()}`,
-        ...(str(body.category, 80) ? [`*Category:* ${str(body.category, 80)}`] : []),
         ``,
-        `*${title}*`,
+        // No separate headline: title is derived from this text, so printing both
+        // would just repeat the first sentence.
         description.length > 600 ? `${description.slice(0, 600)}…` : description,
         ``,
-        ...(attachments.length ? [`📎 ${attachments.length} attachment(s)`] : []),
+        `📎 ${attachments.length} attachment(s)`,
         `👉 ${linkUrl}`,
       ]
       const message = lines.join('\n')
