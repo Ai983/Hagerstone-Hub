@@ -200,6 +200,81 @@ export interface CpsPrAgeing {
   items: CpsPrAgeingItem[]
 }
 
+// ── Delegation Ageing — "which delegated task is late, with whom, how late" ──
+// Distinct band scale from the imprest/PR reports: delegation runs on a daily
+// clock, not a monthly one, so 15 days late is critical here rather than fresh.
+// The clock starts at the DEADLINE (task_date), not creation — a task assigned
+// a week out is not late. See public.founder_delegation_ageing().
+export type DelAgeBand = 'due' | '1-2' | '3-7' | '8-14' | '15+'
+
+export interface DelAgeingGroup {
+  owner?: string
+  stage_key?: string
+  label?: string
+  /** by_stage only: TRUE when the ball is with a verifying head, not the assignee. */
+  awaiting_verify?: boolean
+  /** by_owner only: how many of this person's open tasks carry Very Urgent. */
+  very_urgent?: number
+  count: number
+  overdue?: number
+  oldest: number
+  avg: number
+  bands: Record<DelAgeBand, number>
+}
+
+export interface DelAgeingDelegator {
+  delegator: string
+  count: number
+  overdue: number
+  oldest: number
+}
+
+export interface DelAgeingItem {
+  task_id: string
+  ref: string
+  owner: string
+  delegator: string
+  on_behalf_of: string | null
+  role_group: string
+  project: string | null
+  status: string
+  stage_key: string
+  stage_label: string
+  awaiting_verify: boolean
+  /** Reverse-mapped from custom_points; null for tasks not created via the sheet. */
+  urgency: 'very_urgent' | 'urgent' | 'normal' | null
+  task_date: string
+  due_time: string | null
+  created_at: string
+  /** Days past the deadline — 0 means not yet due. Drives every band and KPI. */
+  overdue_days: number
+  /** Days since creation. Context only. */
+  age_days: number
+  band: DelAgeBand
+}
+
+export interface DelegationAgeing {
+  as_of: string
+  kpis: {
+    open_count: number
+    overdue_count: number
+    awaiting_verify: number
+    very_urgent_late: number
+    oldest_days: number
+    oldest_ref: string | null
+    oldest_owner: string | null
+    breach_gt2: number
+    breach_gt7: number
+    breach_gt14: number
+    top_owner: string | null
+    top_owner_count: number
+  }
+  by_owner: DelAgeingGroup[]
+  by_stage: DelAgeingGroup[]
+  by_delegator: DelAgeingDelegator[]
+  items: DelAgeingItem[]
+}
+
 export interface DelegationSummary {
   task_summary: {
     total: number

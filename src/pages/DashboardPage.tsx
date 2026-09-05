@@ -34,9 +34,12 @@ export function DashboardPage() {
   // Single source for the header (desktop) + bottom bar (mobile) nav actions.
   const role = employee?.role ?? ''
   const isDelegationRole = DELEGATION_ROLES.includes(role)
-  // Delegation super-users (Ritu) get the org employee board first instead of
-  // gamification; their team standings live on the Gamification page.
-  const isEmpBoard = !!employee?.del_super
+  // Delegation authorities get the org employee board first instead of
+  // gamification; their team standings live on the Gamification page. Same
+  // predicate as `isGlobal` in MyDayPage/DelegationSheet/VerifyQueuePage and
+  // is_del_super() in the DB — founders and admins are delegation authorities
+  // by role, so gating on the del_super flag alone hid the board from Dhruv.
+  const isEmpBoard = !!employee?.del_super || role === 'founder' || isAdmin
   const navActions = [
     { key: 'points',    label: 'My Points',    Icon: BarChart2,      show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-points') },
     { key: 'myday',     label: 'Mera Din',     Icon: Sun,            show: isDelegationRole || role === 'founder' || isAdmin, onClick: () => navigate('/delegation/my-day') },
