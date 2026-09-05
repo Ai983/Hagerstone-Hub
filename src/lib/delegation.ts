@@ -246,6 +246,35 @@ export async function fetchAllOpenTasks(): Promise<DelTask[]> {
   return (data ?? []) as DelTask[]
 }
 
+// Completed / verified tasks for the Team-Delegation "Completed" tab (history +
+// points + submission). No is_archived filter — Ma'am keeps the full done-list.
+export async function fetchCompletedTasks(): Promise<DelTask[]> {
+  const { data, error } = await supabase
+    .from('del_tasks')
+    .select('*, del_points(points, status), del_submissions(id, raw_text, attachments, created_at)')
+    .in('status', ['completed', 'verified'])
+    .order('updated_at', { ascending: false })
+    .limit(200)
+  if (error) throw error
+  return (data ?? []) as DelTask[]
+}
+
+// Manual head follow-ups (the FU-1/2/3 escalation) logged by del-task-followup.
+export interface FollowupLog { task_id: string; logged_at: string; kind: string }
+export async function fetchManualFollowups(): Promise<FollowupLog[]> {
+  const { data, error } = await supabase
+    .from('del_notifications')
+    .select('task_id, logged_at, payload')
+    .in('payload->>kind', ['followup', 'followup_overdue'])
+    .order('logged_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map((r) => ({
+    task_id: r.task_id as string,
+    logged_at: r.logged_at as string,
+    kind: (r.payload as { kind?: string } | null)?.kind ?? 'followup',
+  }))
+}
+
 // ── Upload attachment to Supabase Storage ─────────────────────────────────────
 
 export async function uploadAttachment(

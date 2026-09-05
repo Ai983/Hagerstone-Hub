@@ -31,6 +31,8 @@ import { Label } from '../../components/ui/label'
 import { SearchableSelect, type SearchOption } from '../../components/ui/SearchableSelect'
 import { DELEGATION_ROLES, ROLE_SHORT_LABELS } from '../../config/roles'
 import { usePointsConfig, tierPointsFrom } from '../../lib/work-scores'
+import { DelegationSheet } from '../../components/delegation/DelegationSheet'
+import { urgencyFromPoints } from '../../lib/urgency'
 
 // All roles can access delegation — the task type dropdown controls what tasks are available
 const LAUNCH_ROLES = DELEGATION_ROLES
@@ -341,6 +343,7 @@ function TaskCard({
   actionLoading: string | null
 }) {
   const typeLabel = taskTypes.find((t) => t.code === task.type_code)?.label ?? task.type_code ?? 'Kaam'
+  const urg       = urgencyFromPoints(task.custom_points)
   const loading   = actionLoading === task.id
   const pt        = task.del_points?.[0]
   const isActionable = task.status === 'assigned' || task.status === 'in_progress'
@@ -366,7 +369,7 @@ function TaskCard({
     return (
       <PointEntryCard
         points={pts}
-        sourceLabel={`🏷️ ${typeLabel}`}
+        sourceLabel={`${urg ? `${urg.label} · ` : ''}🏷️ ${typeLabel}`}
         taskTitle={task.title}
         status={pill}
         date={task.task_date}
@@ -393,9 +396,17 @@ function TaskCard({
         <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">{task.description}</p>
       )}
 
-      <span className="inline-block text-xs text-stone-400 bg-stone-50 border border-stone-100 px-2 py-0.5 rounded-full">
-        🏷️ {typeLabel}
-      </span>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {urg && (
+          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${urg.badge}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${urg.dot}`} />
+            {urg.label}
+          </span>
+        )}
+        <span className="inline-block text-xs text-stone-400 bg-stone-50 border border-stone-100 px-2 py-0.5 rounded-full">
+          🏷️ {typeLabel}
+        </span>
+      </div>
 
       {/* Rejected-and-returned banner — director checked it and sent it back */}
       {task.reject_reason && (
@@ -974,7 +985,13 @@ export function MyDayPage() {
   })
 
   function tasksFor(col: ColConfig) {
-    return tasks.filter((t) => col.statuses.includes(t.status))
+    return tasks
+      .filter((t) => col.statuses.includes(t.status))
+      .sort((a, b) => {
+        const ra = urgencyFromPoints(a.custom_points)?.rank ?? 0
+        const rb = urgencyFromPoints(b.custom_points)?.rank ?? 0
+        return rb !== ra ? rb - ra : a.task_date.localeCompare(b.task_date)
+      })
   }
 
   const hasRole = LAUNCH_ROLES.includes(roleGroup) || isGlobal
@@ -1114,9 +1131,8 @@ export function MyDayPage() {
       {/* Create modal */}
       <AnimatePresence>
         {createOpen && (
-          <CreateTaskForm
+          <DelegationSheet
             employee={employee}
-            taskTypes={taskTypes}
             teamMembers={teamMembers as Employee[]}
             onClose={() => setCreateOpen(false)}
             onCreated={invalidate}
