@@ -84,7 +84,7 @@ serve(async (req) => {
   let dueLabel = task.task_date
   try {
     dueLabel = new Date(`${task.task_date}T00:00:00+05:30`).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short', year: 'numeric',
+      timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric',
     })
   } catch (_e) { /* keep raw */ }
   const timeStr = task.due_time ? ` ${String(task.due_time).slice(0, 5)}` : ''
