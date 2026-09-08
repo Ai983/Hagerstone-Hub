@@ -120,9 +120,11 @@ serve(async (req) => {
   }
   if (!token) return notFound()
 
+  // Left join, not inner: a grouped link (Vinfast) has project_id NULL, and an
+  // inner join would drop the row entirely — the link would 404 as if revoked.
   const { data: link } = await supabase
     .from('snag_form_links')
-    .select('id, project_id, is_active, revoked_at, projects!inner(name, code)')
+    .select('id, project_id, group_key, is_active, revoked_at, projects(name, code)')
     .eq('token', token)
     .maybeSingle()
 
@@ -130,8 +132,28 @@ serve(async (req) => {
 
   const project = (link.projects ?? {}) as { name?: string; code?: string }
 
-  // ── GET: what project is this link for? ───────────────────────────────────
+  /** The sites a grouped link covers. Read fresh on every request so adding or
+   *  retiring a site is a flag change, never a reissued link. */
+  async function groupSites(): Promise<{ id: string; name: string; code: string }[]> {
+    const { data } = await supabase
+      .from('projects')
+      .select('id, name, code')
+      .eq('snag_group', link!.group_key)
+      .eq('snag_enabled', true)
+      .eq('is_active', true)
+      .order('name')
+    return data ?? []
+  }
+
+  // ── GET: what project (or choice of projects) is this link for? ───────────
   if (req.method === 'GET') {
+    if (link.group_key) {
+      const sites = await groupSites()
+      // A group whose sites were all retired would render an empty picker the
+      // client cannot satisfy. Treat it as a dead link instead.
+      if (!sites.length) return notFound()
+      return json({ group_key: link.group_key, sites })
+    }
     return json({ project_name: project.name ?? '', project_code: project.code ?? '' })
   }
 
@@ -159,7 +181,9 @@ serve(async (req) => {
       return json({ error: `That file is too large. Limit is ${Math.round(limit / 1024 / 1024)} MB.` }, 400)
     }
 
-    const path = `snag/${link.project_id}/${crypto.randomUUID()}-${safeName(filename)}`
+    // Grouped links have no project_id, and the site is not chosen until submit —
+    // key the upload by the link instead so the path is always well-formed.
+    const path = `snag/${link.project_id ?? link.group_key}/${crypto.randomUUID()}-${safeName(filename)}`
     const { data: signed, error } = await supabase.storage
       .from(BUCKET)
       .createSignedUploadUrl(path)
@@ -200,10 +224,27 @@ serve(async (req) => {
 
     const title = deriveTitle(description)
 
+    // Which site is this against? A single-project link answers that on its own;
+    // a grouped link makes the client choose, and the choice is validated against
+    // the group rather than trusted — otherwise the Vinfast link would be a
+    // write handle for every project in the Hub.
+    let projectId = link.project_id
+    let projectLabel = { name: project.name, code: project.code }
+
+    if (link.group_key) {
+      const siteId = str(body.site_id, 40)
+      const site = (await groupSites()).find((s) => s.id === siteId)
+      if (!site) {
+        return json({ error: 'Please choose which site you are reporting for.' }, 400)
+      }
+      projectId = site.id
+      projectLabel = { name: site.name, code: site.code }
+    }
+
     const { data: snag, error: insertErr } = await supabase
       .from('snag_reports')
       .insert({
-        project_id: link.project_id,
+        project_id: projectId,
         form_link_id: link.id,
         reporter_name: reporterName,
         reporter_phone: str(body.reporter_phone, 30) || null,
@@ -245,7 +286,7 @@ serve(async (req) => {
         `🔧 *New snag reported*`,
         ``,
         `*Ref:* ${snag.ref}`,
-        `*Project:* ${project.name ?? '—'}${project.code ? ` (${project.code})` : ''}`,
+        `*Project:* ${projectLabel.name ?? '—'}${projectLabel.code ? ` (${projectLabel.code})` : ''}`,
         `*Client:* ${reporterName}${body.reporter_phone ? ` · ${str(body.reporter_phone, 30)}` : ''}`,
         `*Priority:* ${priority.toUpperCase()}`,
         ``,

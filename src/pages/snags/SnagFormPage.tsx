@@ -27,11 +27,19 @@ const PRIORITIES = [
 ]
 
 interface Attachment { url: string; type: string; name: string; size: number }
+interface Site { id: string; name: string; code: string }
+
+/** A link is either for one site, or for a group of them (Vinfast has seven
+ *  sites behind a single link) in which case the client picks theirs here. */
+type LinkTarget =
+  | { kind: 'project'; name: string; code: string }
+  | { kind: 'group'; sites: Site[] }
 
 export function SnagFormPage() {
   const token = new URLSearchParams(window.location.search).get('t') ?? ''
 
-  const [project, setProject] = useState<{ name: string; code: string } | null>(null)
+  const [target, setTarget] = useState<LinkTarget | null>(null)
+  const [siteId, setSiteId] = useState('')
   // A missing ?t= is knowable on first render — derive it rather than setting
   // state from an effect just to say so.
   const [linkError, setLinkError] = useState<string | null>(
@@ -58,9 +66,13 @@ export function SnagFormPage() {
     fetch(`${FN_URL}?t=${encodeURIComponent(token)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error('invalid')
-        return r.json() as Promise<{ project_name: string; project_code: string }>
+        return r.json() as Promise<{ project_name?: string; project_code?: string; sites?: Site[] }>
       })
-      .then((d) => setProject({ name: d.project_name, code: d.project_code }))
+      .then((d) => {
+        setTarget(d.sites
+          ? { kind: 'group', sites: d.sites }
+          : { kind: 'project', name: d.project_name ?? '', code: d.project_code ?? '' })
+      })
       .catch(() => setLinkError('This link is not valid or has expired. Please contact your Hagerstone project manager for a new one.'))
   }, [token])
 
@@ -106,6 +118,10 @@ export function SnagFormPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (target?.kind === 'group' && !siteId) {
+      setFormError('Please choose which site you are reporting for.')
+      return
+    }
     if (!name.trim() || !description.trim()) {
       setFormError('Please fill in your name and describe the problem.')
       return
@@ -142,6 +158,7 @@ export function SnagFormPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           t: token, action: 'submit',
+          ...(target?.kind === 'group' ? { site_id: siteId } : {}),
           reporter_name: name.trim(),
           reporter_phone: phone.trim(),
           reporter_email: email.trim(),
@@ -211,7 +228,7 @@ export function SnagFormPage() {
     )
   }
 
-  if (!project) {
+  if (!target) {
     return shell(
       <div className="bg-white rounded-2xl border border-stone-100 p-8 text-center text-stone-400 text-sm animate-pulse">
         Loading…
@@ -225,10 +242,27 @@ export function SnagFormPage() {
   return shell(
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="bg-white rounded-2xl border border-stone-100 p-4 sm:p-5">
-        <div className="text-xs text-stone-400 mb-0.5">Reporting an issue for</div>
-        <div className="font-semibold text-stone-800">
-          {project.name}{project.code ? <span className="text-stone-400 font-normal"> · {project.code}</span> : null}
-        </div>
+        {target.kind === 'project' ? (
+          <>
+            <div className="text-xs text-stone-400 mb-0.5">Reporting an issue for</div>
+            <div className="font-semibold text-stone-800">
+              {target.name}{target.code ? <span className="text-stone-400 font-normal"> · {target.code}</span> : null}
+            </div>
+          </>
+        ) : (
+          <div>
+            <label className={labelCls} htmlFor="site">
+              Which site are you reporting for? <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="site" className={inputCls} value={siteId}
+              onChange={(e) => setSiteId(e.target.value)} required
+            >
+              <option value="">Select your site…</option>
+              {target.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-100 p-4 sm:p-5 space-y-4">

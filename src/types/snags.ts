@@ -87,9 +87,21 @@ export interface SnagEvent {
 /** wa_messages.status values the gateway writes. */
 export type WaStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
 
+/** A site offered for client snag reporting. `snag_group` ties sites that share
+ *  one client link together (Vinfast's seven sites). */
+export interface SnagSite {
+  id: string
+  code: string
+  name: string
+  snag_group: string | null
+}
+
 export interface SnagFormLink {
   id: string
-  project_id: string
+  /** Null on a grouped link — the site is chosen by the client on the form. */
+  project_id: string | null
+  /** Null on a single-site link. Exactly one of these two is set. */
+  group_key: string | null
   token: string
   label: string | null
   is_active: boolean

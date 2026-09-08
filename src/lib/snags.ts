@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import type {
-  Snag, SnagEvent, SnagFormLink, SnagStatus, WaStatus,
+  Snag, SnagEvent, SnagFormLink, SnagSite, SnagStatus, WaStatus,
 } from '../types/snags'
 import type { Employee } from '../types'
 
@@ -105,6 +105,21 @@ export async function addSnagComment(
   if (error) throw error
 }
 
+// ── Sites ─────────────────────────────────────────────────────────────────────
+
+/** Only the handed-over sites Saksham issues client links for — not every
+ *  project in the Hub. Whitelisted by projects.snag_enabled. */
+export async function fetchSnagSites(): Promise<SnagSite[]> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, code, name, snag_group')
+    .eq('snag_enabled', true)
+    .eq('is_active', true)
+    .order('name')
+  if (error) throw error
+  return (data ?? []) as SnagSite[]
+}
+
 // ── Form links ────────────────────────────────────────────────────────────────
 
 /** Every link, for the Client Links tab. Small table (one row per project, plus
@@ -127,6 +142,20 @@ export async function createFormLink(
   const { data, error } = await supabase
     .from('snag_form_links')
     .insert({ project_id: projectId, created_by: createdBy, label: label?.trim() || null })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as SnagFormLink
+}
+
+/** One link covering every site in a group. The client picks their site on the
+ *  form; the report is still filed against that one project. */
+export async function createGroupFormLink(
+  groupKey: string, createdBy: string,
+): Promise<SnagFormLink> {
+  const { data, error } = await supabase
+    .from('snag_form_links')
+    .insert({ group_key: groupKey, created_by: createdBy, label: `${groupKey} — all sites` })
     .select('*')
     .single()
   if (error) throw error

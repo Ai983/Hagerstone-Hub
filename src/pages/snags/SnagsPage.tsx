@@ -7,13 +7,13 @@ import { useAuth } from '../../hooks/useAuth'
 import {
   fetchSnags, fetchSnagEvents, fetchWaStatus,
   updateSnagStatus, addSnagComment, canManageSnags,
-  fetchAllFormLinks, createFormLink, revokeFormLink, snagFormUrl,
+  fetchAllFormLinks, createFormLink, createGroupFormLink, revokeFormLink,
+  snagFormUrl, fetchSnagSites,
 } from '../../lib/snags'
-import { fetchActiveProjects } from '../../lib/delegation'
 import {
   SNAG_STATUSES, SNAG_STATUS_LABELS, SNAG_PRIORITY_LABELS, SNAG_NEXT_STATUS,
 } from '../../types/snags'
-import type { Snag, SnagStatus, SnagPriority, WaStatus } from '../../types/snags'
+import type { Snag, SnagSite, SnagStatus, SnagPriority, WaStatus } from '../../types/snags'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Badge } from '../../components/ui/badge'
@@ -26,6 +26,18 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../../components/ui/table'
+
+/** A row on the Client Links tab: either one site, or a whole group behind a
+ *  single link. `key` is what the link is created against — a project id for a
+ *  site, the group key for a group. */
+interface LinkRow {
+  kind: 'site' | 'group'
+  key: string
+  title: string
+  subtitle: string
+  projectIds: string[]
+  siteNames?: string[]
+}
 
 const STATUS_STYLES: Record<SnagStatus, string> = {
   open: 'bg-red-50 text-red-700 border-red-200',
@@ -120,9 +132,9 @@ export function SnagsPage() {
   // Lives here rather than on the admin Projects page so the whole snag system
   // is one place, and so Saksham can issue links himself without admin access
   // (RLS gates this on can_manage_snags, which he has).
-  const { data: projects = [] } = useQuery({
-    queryKey: ['snag_projects'],
-    queryFn: fetchActiveProjects,
+  const { data: sites = [] } = useQuery({
+    queryKey: ['snag_sites'],
+    queryFn: fetchSnagSites,
     enabled: tab === 'links',
   })
   const { data: formLinks = [] } = useQuery({
@@ -131,11 +143,14 @@ export function SnagsPage() {
     enabled: tab === 'links',
   })
 
-  // project_id → its active link (fetchAllFormLinks is newest-first, so the
-  // first active row per project is the current one).
-  const activeLinkByProject = useMemo(() => {
+  // project_id (or group_key) → its active link. fetchAllFormLinks is
+  // newest-first, so the first active row per target is the current one.
+  const activeLinkByTarget = useMemo(() => {
     const m = new Map<string, typeof formLinks[number]>()
-    for (const l of formLinks) if (l.is_active && !m.has(l.project_id)) m.set(l.project_id, l)
+    for (const l of formLinks) {
+      const key = l.group_key ?? l.project_id
+      if (l.is_active && key && !m.has(key)) m.set(key, l)
+    }
     return m
   }, [formLinks])
 
@@ -146,7 +161,9 @@ export function SnagsPage() {
   }, [snags])
 
   const createLinkMutation = useMutation({
-    mutationFn: async (projectId: string) => createFormLink(projectId, employee!.id),
+    mutationFn: async (row: LinkRow) => row.kind === 'group'
+      ? createGroupFormLink(row.key, employee!.id)
+      : createFormLink(row.key, employee!.id),
     onSuccess: () => {
       toast.success('Link created — copy it and send to the client')
       queryClient.invalidateQueries({ queryKey: ['snag_form_links'] })
@@ -172,9 +189,36 @@ export function SnagsPage() {
     }
   }
 
-  const filteredProjects = projects.filter((p) => {
+  // One row per client link, not per site: a grouped client (Vinfast) collapses
+  // its sites into a single row, because a single link is what they get.
+  const linkRows = useMemo<LinkRow[]>(() => {
+    const groups = new Map<string, SnagSite[]>()
+    const singles: LinkRow[] = []
+    for (const s of sites) {
+      if (s.snag_group) {
+        const list = groups.get(s.snag_group) ?? []
+        list.push(s)
+        groups.set(s.snag_group, list)
+      } else {
+        singles.push({ kind: 'site', key: s.id, title: s.name, subtitle: s.code, projectIds: [s.id] })
+      }
+    }
+    const grouped: LinkRow[] = [...groups.entries()].map(([key, list]) => ({
+      kind: 'group',
+      key,
+      title: `${key[0].toUpperCase()}${key.slice(1)} — all sites`,
+      subtitle: `${list.length} sites · client picks on the form`,
+      projectIds: list.map((s) => s.id),
+      siteNames: list.map((s) => s.name),
+    }))
+    // Groups first — they are the ones whose behaviour is non-obvious.
+    return [...grouped, ...singles]
+  }, [sites])
+
+  const filteredRows = linkRows.filter((r) => {
     const q = linkSearch.toLowerCase()
-    return q === '' || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)
+    return q === '' || r.title.toLowerCase().includes(q) || r.subtitle.toLowerCase().includes(q)
+      || (r.siteNames ?? []).some((n) => n.toLowerCase().includes(q))
   })
 
   const commentMutation = useMutation({
@@ -254,14 +298,15 @@ export function SnagsPage() {
           <>
             <div className="bg-white rounded-xl border border-stone-100 p-4 text-xs text-stone-600">
               <div className="font-semibold text-stone-800 mb-1">How this works</div>
-              Generate a link for a project, then WhatsApp it to that client. They open it
-              with no login, describe the problem and attach photos or video. Every
+              Generate a link for a site, then WhatsApp it to that client. They open it
+              with no login, describe the problem and attach a photo or video. Every
               submission lands in the Snag Queue and alerts the team.
-              <span className="text-stone-400"> Revoke a link if it spreads beyond the client — snags already submitted are unaffected.</span>
+              <span className="text-stone-400"> A client with several sites gets one link and picks their site on the form.
+              Revoke a link if it spreads beyond the client — snags already submitted are unaffected.</span>
             </div>
 
             <Input
-              placeholder="Search projects…"
+              placeholder="Search sites…"
               value={linkSearch} onChange={(e) => setLinkSearch(e.target.value)}
               className="sm:max-w-xs bg-white"
             />
@@ -270,22 +315,25 @@ export function SnagsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Project</TableHead>
+                    <TableHead>Site</TableHead>
                     <TableHead>Client link</TableHead>
                     <TableHead className="text-right">Snags</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredProjects.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center text-stone-400 py-8 text-sm">No projects match.</TableCell></TableRow>
-                  ) : filteredProjects.map((p) => {
-                    const link = activeLinkByProject.get(p.id)
+                  {filteredRows.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center text-stone-400 py-8 text-sm">No sites match.</TableCell></TableRow>
+                  ) : filteredRows.map((p) => {
+                    const link = activeLinkByTarget.get(p.key)
                     return (
-                      <TableRow key={p.id}>
+                      <TableRow key={p.key}>
                         <TableCell>
-                          <div className="text-sm text-stone-800">{p.name}</div>
-                          <div className="text-[11px] text-stone-400 font-mono">{p.code}</div>
+                          <div className="text-sm text-stone-800">{p.title}</div>
+                          <div className="text-[11px] text-stone-400 font-mono">{p.subtitle}</div>
+                          {p.siteNames && (
+                            <div className="text-[11px] text-stone-400 mt-0.5">{p.siteNames.join(' · ')}</div>
+                          )}
                         </TableCell>
                         <TableCell className="max-w-md">
                           {link ? (
@@ -297,7 +345,7 @@ export function SnagsPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right text-xs text-stone-500">
-                          {snagCountByProject.get(p.id) ?? 0}
+                          {p.projectIds.reduce((n, id) => n + (snagCountByProject.get(id) ?? 0), 0)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
@@ -318,7 +366,7 @@ export function SnagsPage() {
                               </>
                             ) : (
                               <Button size="sm" className="h-7 text-xs bg-amber-800 hover:bg-amber-700"
-                                onClick={() => createLinkMutation.mutate(p.id)}
+                                onClick={() => createLinkMutation.mutate(p)}
                                 disabled={createLinkMutation.isPending}>
                                 <LinkIcon size={12} className="mr-1" /> Generate
                               </Button>
