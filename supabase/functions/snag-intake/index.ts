@@ -38,9 +38,12 @@ const BUCKET = 'snag-uploads'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024
-const MAX_ATTACHMENTS = 10
+// Mirrored in src/pages/snags/SnagFormPage.tsx. The bucket carries the same
+// video ceiling as its own file_size_limit, so an oversize PUT straight to the
+// signed URL is rejected by storage even if this check were bypassed.
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024
+const MAX_ATTACHMENTS = 20
 
 /** Storage rejects keys with characters outside a restricted set (e.g. "~",
  *  non-ASCII), which silently broke uploads elsewhere — same sanitisation as

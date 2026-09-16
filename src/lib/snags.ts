@@ -93,6 +93,43 @@ export async function updateSnagStatus(
   if (evErr) throw evErr
 }
 
+/**
+ * WhatsApp the client that their snag is fixed.
+ *
+ * Separate from updateSnagStatus rather than folded into it: the status change
+ * is a plain RLS-guarded table write, while this needs the gateway key and so
+ * has to go through an edge function. Keeping them apart also means a WhatsApp
+ * that fails to send never rolls back a closure that genuinely happened.
+ */
+export async function notifyClientResolved(
+  snagId: string, phone: string,
+): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('snag-notify-client', {
+    body: { snag_id: snagId, phone },
+  })
+  // invoke() collapses any non-2xx into a generic FunctionsHttpError ("Edge
+  // Function returned a non-2xx status code") and leaves `data` null, so the
+  // reason the function actually gave — a bad number, a snag not yet resolved —
+  // is only reachable through the Response it hangs on .context.
+  if (error) {
+    const res = (error as { context?: Response }).context
+    let detail: string | undefined
+    try { detail = (await res?.json())?.error } catch { /* not JSON */ }
+    throw new Error(detail ?? error.message)
+  }
+  if ((data as { error?: string } | null)?.error) {
+    throw new Error((data as { error: string }).error)
+  }
+}
+
+/** Digits-only sanity check mirroring isRealMobile() in the edge function — an
+ *  Indian mobile, with or without the 91 prefix. */
+export function isLikelyMobile(raw: string): boolean {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  const local = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits
+  return local.length === 10 && /^[6-9]/.test(local)
+}
+
 export async function addSnagComment(
   snagId: string, actorId: string, note: string,
 ): Promise<void> {

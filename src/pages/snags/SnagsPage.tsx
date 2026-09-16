@@ -8,7 +8,7 @@ import {
   fetchSnags, fetchSnagEvents, fetchWaStatus,
   updateSnagStatus, addSnagComment, canManageSnags,
   fetchAllFormLinks, createFormLink, createGroupFormLink, revokeFormLink,
-  snagFormUrl, fetchSnagSites,
+  snagFormUrl, fetchSnagSites, notifyClientResolved, isLikelyMobile,
 } from '../../lib/snags'
 import {
   SNAG_STATUSES, SNAG_STATUS_LABELS, SNAG_PRIORITY_LABELS, SNAG_NEXT_STATUS,
@@ -88,6 +88,16 @@ export function SnagsPage() {
   )
   const [note, setNote] = useState('')
 
+  // Moving a snag to resolved/closed goes through a confirm step instead of
+  // firing on the click, because that is where the client's WhatsApp number is
+  // collected. `pending` is the status being confirmed; null = no confirm open.
+  // 'notify_only' re-sends the closure message on an already-closed snag without
+  // touching its status — the gateway can drop a send, and a client who was
+  // never told is the whole failure this feature exists to prevent.
+  const [pending, setPending] = useState<SnagStatus | 'notify_only' | null>(null)
+  const [tellClient, setTellClient] = useState(true)
+  const [clientPhone, setClientPhone] = useState('')
+
   const { data: snags = [], isLoading } = useQuery({ queryKey: ['snags'], queryFn: fetchSnags })
 
   // Derived, not stored: the open dialog then always reflects the latest fetched
@@ -98,7 +108,10 @@ export function SnagsPage() {
     return null
   }, [snags, selectedId, deepRef])
 
-  const closeDialog = () => { setSelectedId(null); setDeepRef(null); setNote('') }
+  const closeDialog = () => {
+    setSelectedId(null); setDeepRef(null); setNote('')
+    setPending(null); setClientPhone('')
+  }
 
   const { data: events = [] } = useQuery({
     queryKey: ['snag_events', selected?.id],
@@ -117,16 +130,71 @@ export function SnagsPage() {
   })
 
   const statusMutation = useMutation({
-    mutationFn: async ({ snag, to }: { snag: Snag; to: SnagStatus }) =>
-      updateSnagStatus(snag, to, employee!.id, note),
-    onSuccess: (_d, vars) => {
-      toast.success(`Marked ${SNAG_STATUS_LABELS[vars.to].toLowerCase()}`)
-      setNote('')
+    mutationFn: async ({ snag, to, phone }: { snag: Snag; to: SnagStatus; phone?: string }) => {
+      await updateSnagStatus(snag, to, employee!.id, note)
+      if (!phone) return { notifyError: null as string | null, notified: false }
+      try {
+        await notifyClientResolved(snag.id, phone)
+        return { notifyError: null as string | null, notified: true }
+      } catch (err) {
+        // The status change has already been written. Rethrowing would report
+        // the whole action as failed and invite a second click, so a failed
+        // WhatsApp is reported as its own outcome instead.
+        return {
+          notifyError: err instanceof Error ? err.message : 'WhatsApp could not be sent',
+          notified: false,
+        }
+      }
+    },
+    onSuccess: (res, vars) => {
+      const label = SNAG_STATUS_LABELS[vars.to].toLowerCase()
+      if (res.notifyError) toast.error(`Marked ${label}, but the client was NOT messaged — ${res.notifyError}`)
+      else if (res.notified) toast.success(`Marked ${label} · client notified on WhatsApp`)
+      else toast.success(`Marked ${label}`)
+      setNote(''); setPending(null)
       queryClient.invalidateQueries({ queryKey: ['snags'] })
       queryClient.invalidateQueries({ queryKey: ['snag_events'] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
+
+  const notifyMutation = useMutation({
+    mutationFn: async (phone: string) => notifyClientResolved(selected!.id, phone),
+    onSuccess: () => {
+      toast.success('Client notified on WhatsApp')
+      setPending(null)
+      queryClient.invalidateQueries({ queryKey: ['snags'] })
+      queryClient.invalidateQueries({ queryKey: ['snag_events'] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  /** Resolving or closing collects the client's number first; every other
+   *  transition is a one-click move as before. */
+  function beginStatusChange(to: SnagStatus | 'notify_only') {
+    if (!selected) return
+    if (to !== 'resolved' && to !== 'closed' && to !== 'notify_only') {
+      statusMutation.mutate({ snag: selected, to })
+      return
+    }
+    setPending(to)
+    // Default off once the client has already been told, so resolved → closed
+    // doesn't message them twice for the same fix.
+    setTellClient(to === 'notify_only' || !selected.client_notified_at)
+    setClientPhone(selected.reporter_phone ?? '')
+  }
+
+  function confirmPending() {
+    if (!selected || !pending) return
+    const phone = clientPhone.trim()
+    const wants = pending === 'notify_only' || tellClient
+    if (wants && !isLikelyMobile(phone)) {
+      toast.error('Enter the client\'s 10-digit WhatsApp number.')
+      return
+    }
+    if (pending === 'notify_only') notifyMutation.mutate(phone)
+    else statusMutation.mutate({ snag: selected, to: pending, phone: wants ? phone : undefined })
+  }
 
   // ── Client links ────────────────────────────────────────────────────────────
   // Lives here rather than on the admin Projects page so the whole snag system
@@ -546,9 +614,9 @@ export function SnagsPage() {
                             {e.event_type === 'status_changed' && `Moved to ${SNAG_STATUS_LABELS[e.to_status as SnagStatus] ?? e.to_status}`}
                             {e.event_type === 'comment' && (e.note ?? '')}
                             {e.event_type === 'assigned' && 'Assigned'}
-                            {e.event_type === 'notified' && (
+                            {(e.event_type === 'notified' || e.event_type === 'client_notified') && (
                               <>
-                                WhatsApp to {e.recipient_phone}
+                                {e.event_type === 'client_notified' ? 'Closure WhatsApp to the client' : 'WhatsApp to'} {e.recipient_phone}
                                 {e.wa_message_id && waStatus[e.wa_message_id] && (
                                   <span className={waStatus[e.wa_message_id] === 'failed' ? 'text-red-600 font-semibold' : 'text-stone-400'}>
                                     {' '}· {WA_LABELS[waStatus[e.wa_message_id]]}
@@ -579,10 +647,77 @@ export function SnagsPage() {
                         : 'Add a note (optional)'}
                       className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm min-h-[70px] focus:outline-none focus:ring-2 focus:ring-amber-700/30"
                     />
+                    {pending ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 space-y-3">
+                        <div className="text-sm font-semibold text-stone-800">
+                          {pending === 'notify_only'
+                            ? 'Message the client again'
+                            : `Mark this snag ${SNAG_STATUS_LABELS[pending].toLowerCase()}?`}
+                        </div>
+
+                        {pending !== 'notify_only' && (
+                          <label className="flex items-start gap-2 text-xs text-stone-700">
+                            <input
+                              type="checkbox" checked={tellClient}
+                              onChange={(e) => setTellClient(e.target.checked)}
+                              className="mt-0.5 accent-amber-800"
+                            />
+                            <span>
+                              Tell the client on WhatsApp that it is fixed
+                              {selected.client_notified_at && (
+                                <span className="block text-amber-800">
+                                  Already messaged on {fmt(selected.client_notified_at)} — only tick this to send again.
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        )}
+
+                        {(tellClient || pending === 'notify_only') && (
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-stone-600" htmlFor="client-wa">
+                              Client's WhatsApp number
+                            </label>
+                            <Input
+                              id="client-wa" type="tel" inputMode="tel"
+                              value={clientPhone} onChange={(e) => setClientPhone(e.target.value)}
+                              placeholder="10-digit mobile, e.g. 9876543210"
+                              className="bg-white max-w-xs"
+                            />
+                            <p className="text-[11px] text-stone-500">
+                              {selected.reporter_phone
+                                ? 'Pre-filled from the number they reported with — change it if they use WhatsApp on another number.'
+                                : 'They did not leave a number on the form, so enter the one to message.'}
+                              {' '}They will get the reference {selected.ref}
+                              {note.trim() ? ' and your note above' : ''}.
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            onClick={confirmPending}
+                            disabled={statusMutation.isPending || notifyMutation.isPending}
+                            className="bg-amber-800 hover:bg-amber-700 text-sm"
+                          >
+                            {statusMutation.isPending || notifyMutation.isPending
+                              ? 'Sending…'
+                              : pending === 'notify_only' ? 'Send WhatsApp' : 'Confirm'}
+                          </Button>
+                          <Button
+                            variant="ghost" className="text-sm text-stone-500"
+                            onClick={() => setPending(null)}
+                            disabled={statusMutation.isPending || notifyMutation.isPending}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="flex flex-wrap gap-2">
                       {nextStatus && (
                         <Button
-                          onClick={() => statusMutation.mutate({ snag: selected, to: nextStatus })}
+                          onClick={() => beginStatusChange(nextStatus)}
                           disabled={statusMutation.isPending}
                           className="bg-amber-800 hover:bg-amber-700 text-sm"
                         >
@@ -596,16 +731,25 @@ export function SnagsPage() {
                       >
                         Add note only
                       </Button>
+                      {(selected.status === 'resolved' || selected.status === 'closed') && (
+                        <Button
+                          variant="outline" className="text-sm"
+                          onClick={() => beginStatusChange('notify_only')}
+                        >
+                          {selected.client_notified_at ? 'Message client again' : 'Message the client'}
+                        </Button>
+                      )}
                       {selected.status !== 'closed' && nextStatus !== 'closed' && (
                         <Button
                           variant="ghost" className="text-sm text-stone-500"
-                          onClick={() => statusMutation.mutate({ snag: selected, to: 'closed' })}
+                          onClick={() => beginStatusChange('closed')}
                           disabled={statusMutation.isPending}
                         >
                           Close without fixing
                         </Button>
                       )}
                     </div>
+                    )}
                   </div>
                 )}
               </div>

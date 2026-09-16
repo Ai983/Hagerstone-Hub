@@ -62,11 +62,16 @@ export interface Snag {
   first_response_at: string | null
   resolved_at: string | null
   closed_at: string | null
+  /** When the client was last WhatsApped that this is fixed. Null = never. */
+  client_notified_at: string | null
   /** Joined from public.projects for display. */
   project?: { name: string; code: string } | null
 }
 
-export type SnagEventType = 'created' | 'status_changed' | 'comment' | 'assigned' | 'notified'
+/** 'notified' is the inbound alert to OUR team on a new report;
+ *  'client_notified' is the closure message sent back out to the client. */
+export type SnagEventType =
+  'created' | 'status_changed' | 'comment' | 'assigned' | 'notified' | 'client_notified'
 
 export interface SnagEvent {
   id: string

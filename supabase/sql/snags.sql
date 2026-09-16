@@ -153,6 +153,23 @@ CREATE TABLE IF NOT EXISTS public.snag_events (
 
 CREATE INDEX IF NOT EXISTS snag_events_snag_idx ON public.snag_events (snag_id, created_at);
 
+-- 'client_notified' is the closure message sent OUT to the client, as distinct
+-- from 'notified' (the inbound alert to our own team). Kept as its own type so
+-- the activity log can say who was told what, and so the "already told them"
+-- check below never mistakes a team alert for a client one.
+ALTER TABLE public.snag_events DROP CONSTRAINT IF EXISTS snag_events_event_type_check;
+ALTER TABLE public.snag_events ADD CONSTRAINT snag_events_event_type_check
+  CHECK (event_type IN ('created','status_changed','comment','assigned','notified','client_notified'));
+
+-- Set when the closure WhatsApp is queued. Drives the default state of the
+-- "tell the client" toggle: a snag that goes resolved → closed would otherwise
+-- offer to message the client twice for the same fix.
+ALTER TABLE public.snag_reports
+  ADD COLUMN IF NOT EXISTS client_notified_at timestamptz;
+
+COMMENT ON COLUMN public.snag_reports.client_notified_at IS
+  'When the client was last WhatsApped that this snag is resolved/closed.';
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. Access helpers
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -252,9 +269,13 @@ CREATE POLICY snag_form_links_update ON public.snag_form_links
 -- policy: uploads require a signed upload URL minted by the edge function, so
 -- finding the bucket is not enough to write to it.
 
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('snag-uploads', 'snag-uploads', true)
-ON CONFLICT (id) DO NOTHING;
+-- file_size_limit matches MAX_VIDEO_BYTES in the snag-intake function (200 MB).
+-- Without it the bucket falls back to the project-wide cap, which is far larger
+-- than anything a client should be posting from a phone.
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('snag-uploads', 'snag-uploads', true, 209715200)
+ON CONFLICT (id) DO UPDATE SET file_size_limit = EXCLUDED.file_size_limit;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8. Grant the initial people

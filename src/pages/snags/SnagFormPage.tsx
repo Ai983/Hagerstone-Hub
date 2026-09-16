@@ -15,9 +15,14 @@ const FN_URL = 'https://tpfvnerrjhqwipyonngf.supabase.co/functions/v1/snag-intak
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024
-const MAX_FILES = 10
+// Kept in step with the same three constants in supabase/functions/snag-intake —
+// the function is the one that actually enforces them.
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024
+const MAX_FILES = 20
+// A 200 MB video off a phone is a long PUT. Uploading all of them at once just
+// makes every one of them slow, so run a few at a time.
+const UPLOAD_CONCURRENCY = 3
 
 const PRIORITIES = [
   { value: 'low', label: 'Low — cosmetic, no rush' },
@@ -54,6 +59,8 @@ export function SnagFormPage() {
   // is derived server-side from the first sentence of this.
   const [description, setDescription] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  // Per-file upload percentage, keyed by index into `files`.
+  const [pct, setPct] = useState<Record<number, number>>({})
 
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState('')
@@ -87,14 +94,24 @@ export function SnagFormPage() {
       if (f.size > limit) { errs.push(`${f.name}: too large (max ${limit / 1024 / 1024} MB)`); return false }
       return true
     })
+    setFiles((prev) => {
+      const room = MAX_FILES - prev.length
+      // Silently dropping the tail reads as "the picker didn't work" on a phone.
+      if (valid.length > room) {
+        errs.push(`Only ${MAX_FILES} files can be attached — the last ${valid.length - room} were not added`)
+      }
+      return [...prev, ...valid.slice(0, Math.max(room, 0))]
+    })
     setFormError(errs.length ? errs.join(' · ') : null)
-    setFiles((prev) => [...prev, ...valid].slice(0, MAX_FILES))
     e.target.value = ''
   }
 
   /** Ask the function for a signed URL, then PUT the file straight to storage —
-   *  large videos never pass through the edge runtime. */
-  async function uploadOne(file: File): Promise<Attachment> {
+   *  large videos never pass through the edge runtime.
+   *
+   *  XHR rather than fetch purely for upload.onprogress: a 200 MB video on mobile
+   *  data is minutes of silence otherwise, and clients assume it has hung. */
+  async function uploadOne(file: File, onProgress: (pct: number) => void): Promise<Attachment> {
     const res = await fetch(FN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -106,14 +123,45 @@ export function SnagFormPage() {
     if (!res.ok) throw new Error(`${file.name} could not be prepared for upload`)
     const { signed_url, public_url } = await res.json() as { signed_url: string; public_url: string }
 
-    const put = await fetch(signed_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', signed_url)
+      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) onProgress(Math.round((ev.loaded / ev.total) * 100))
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) { onProgress(100); resolve() }
+        else reject(new Error(`${file.name} failed to upload`))
+      }
+      xhr.onerror = () => reject(new Error(`${file.name} failed to upload`))
+      xhr.onabort = () => reject(new Error(`${file.name} upload was cancelled`))
+      xhr.send(file)
     })
-    if (!put.ok) throw new Error(`${file.name} failed to upload`)
 
     return { url: public_url, type: file.type, name: file.name, size: file.size }
+  }
+
+  /** Promise.allSettled over every file at once saturates a phone's uplink and
+   *  makes each upload slower. Same settled-results shape, `limit` at a time. */
+  async function uploadAll(list: File[]): Promise<PromiseSettledResult<Attachment>[]> {
+    const results = new Array<PromiseSettledResult<Attachment>>(list.length)
+    let next = 0
+    const worker = async () => {
+      while (next < list.length) {
+        const i = next++
+        try {
+          const value = await uploadOne(list[i], (pct) => setPct((p) => ({ ...p, [i]: pct })))
+          results[i] = { status: 'fulfilled', value }
+        } catch (reason) {
+          results[i] = { status: 'rejected', reason }
+        }
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(UPLOAD_CONCURRENCY, list.length) }, worker),
+    )
+    return results
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -140,7 +188,8 @@ export function SnagFormPage() {
       // typed out — upload what we can and tell them what didn't make it.
       const failed: string[] = []
       setProgress(`Uploading ${files.length} file(s)…`)
-      const results = await Promise.allSettled(files.map(uploadOne))
+      setPct({})
+      const results = await uploadAll(files)
       const attachments = results
         .filter((r): r is PromiseFulfilledResult<Attachment> => r.status === 'fulfilled')
         .map((r) => r.value)
@@ -304,7 +353,8 @@ export function SnagFormPage() {
           <label className={labelCls}>Photos or video <span className="text-red-500">*</span></label>
           <p className="text-[11px] text-stone-400 mb-2">
             At least one is required — it is how our team sees the problem before visiting.
-            Photos up to 10 MB, videos up to 50 MB. Up to {MAX_FILES} files.
+            You can attach as many as you need: photos up to {MAX_IMAGE_BYTES / 1024 / 1024} MB,
+            videos up to {MAX_VIDEO_BYTES / 1024 / 1024} MB, {MAX_FILES} files in total.
           </p>
           <input
             ref={fileRef} type="file" multiple
@@ -313,25 +363,46 @@ export function SnagFormPage() {
           />
           <button
             type="button" onClick={() => fileRef.current?.click()}
-            className="text-sm font-medium text-amber-800 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 hover:bg-amber-100 transition-colors"
+            disabled={submitting || files.length >= MAX_FILES}
+            className="text-sm font-medium text-amber-800 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 hover:bg-amber-100 transition-colors disabled:opacity-50"
           >
-            + Add photo or video
+            + Add photos or videos
           </button>
+          {files.length > 0 && (
+            <span className="ml-2 text-[11px] text-stone-400">
+              {files.length} of {MAX_FILES} attached
+            </span>
+          )}
 
           {files.length > 0 && (
             <ul className="mt-3 space-y-1.5">
               {files.map((f, i) => (
-                <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 text-xs bg-stone-50 rounded-lg px-3 py-2">
-                  <span className="truncate text-stone-600">
-                    {f.type.startsWith('video/') ? '🎬' : '🖼️'} {f.name}
-                    <span className="text-stone-400"> · {(f.size / 1024 / 1024).toFixed(1)} MB</span>
-                  </span>
-                  <button
-                    type="button" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="text-stone-400 hover:text-red-600 shrink-0" aria-label={`Remove ${f.name}`}
-                  >
-                    ✕
-                  </button>
+                <li key={`${f.name}-${i}`} className="text-xs bg-stone-50 rounded-lg px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-stone-600">
+                      {f.type.startsWith('video/') ? '🎬' : '🖼️'} {f.name}
+                      <span className="text-stone-400"> · {(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                    </span>
+                    {submitting ? (
+                      <span className="text-stone-400 shrink-0 tabular-nums">{pct[i] ?? 0}%</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="text-stone-400 hover:text-red-600 shrink-0" aria-label={`Remove ${f.name}`}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  {submitting && (
+                    <div className="mt-1.5 h-1 rounded-full bg-stone-200 overflow-hidden">
+                      <div
+                        className="h-full bg-amber-700 transition-[width] duration-200"
+                        style={{ width: `${pct[i] ?? 0}%` }}
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
