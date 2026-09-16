@@ -118,7 +118,7 @@ serve(async (req) => {
     // Deliberately NOT "reply to this message": nothing in the Hub reads inbound
     // WhatsApp, so a reply here would go unanswered. The two routes named below
     // are both real — the report form link they already have still works.
-    `If the problem is still there, please contact your Hagerstone project manager quoting the reference number above, or report it again using the same link we sent you.`,
+    `If the problem is still there, please contact our CRM team quoting the reference number above, or report it again using the same link we sent you.`,
     ``,
     `Thank you for your patience.`,
     `— Team Hagerstone`,
