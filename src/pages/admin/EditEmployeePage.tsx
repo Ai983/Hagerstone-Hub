@@ -22,6 +22,8 @@ const schema = z.object({
   designation: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
+  // hr.sites id. 'none' leaves the existing posting untouched.
+  site_id: z.string(),
   finance_role: z.string(),
   finance_active: z.boolean(),
   finance_link_email: z.string().optional(),
@@ -83,11 +85,21 @@ export function EditEmployeePage() {
     enabled: !!id,
   })
 
+  const { data: sites, isLoading: sitesLoading } = useQuery({
+    queryKey: ['attendance-sites'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('attendance_sites')
+      if (error) throw error
+      return (data ?? []) as { id: string; name: string }[]
+    },
+  })
+
   const { register, handleSubmit, control, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       is_active: true,
       staff_type: 'office',
+      site_id: 'none',
       snag_viewer: false, snag_owner: false, snag_notify: false,
       finance_role: 'none', finance_active: true, finance_link_email: '',
       cps_role: 'none', cps_active: true, cps_link_email: '',
@@ -96,13 +108,18 @@ export function EditEmployeePage() {
   })
 
   useEffect(() => {
-    if (employee && moduleAccess && !moduleAccessLoaded) {
+    // `sites` is part of the gate for the same reason as moduleAccess: the
+    // posting is stored as text on employees.department and has to be matched
+    // back to an hr.sites row to preselect it. Reset before the list lands and
+    // the dropdown shows "Not set" for someone who has a site.
+    if (employee && moduleAccess && sites && !moduleAccessLoaded) {
       reset({
         name: employee.name,
         phone: employee.phone || '',
         designation: employee.designation || '',
         role: employee.role,
         staff_type: employee.staff_type ?? 'office',
+        site_id: sites.find(s => s.name === employee.department)?.id ?? 'none',
         finance_role: employee.finance_role ?? 'none',
         finance_active: employee.finance_active ?? true,
         finance_link_email: employee.finance_link_email ?? '',
@@ -120,7 +137,7 @@ export function EditEmployeePage() {
       })
       setModuleAccessLoaded(true)
     }
-  }, [employee, moduleAccess, moduleAccessLoaded, reset])
+  }, [employee, moduleAccess, sites, moduleAccessLoaded, reset])
 
   const handleRoleChange = (role: RoleId) => {
     setValue('role', role)
@@ -166,6 +183,19 @@ export function EditEmployeePage() {
       // Hub-wins: project the chosen Finance/CPS roles + active onto the linked system rows
       const { error: sysError } = await supabase.rpc('sync_employee_systems', { p_employee_id: id })
       if (sysError) throw sysError
+
+      // Posting + attendance profile. A changed site has to reach
+      // finance.employees.site too — that column is only written when the row is
+      // first created, so an edit that stopped at employees.department would
+      // leave imprest filtering on the old posting. 'none' passes null, which
+      // leaves the existing posting alone rather than blanking it.
+      const site = data.site_id === 'none' ? null : sites?.find(s => s.id === data.site_id) ?? null
+      const { error: provErr } = await supabase.rpc('provision_employee_attendance', {
+        p_employee_id: id,
+        p_site_name: site?.name ?? null,
+        p_home_site_id: site?.id ?? null,
+      })
+      if (provErr) throw provErr
     },
     onSuccess: () => {
       toast.success('Employee updated successfully')
@@ -188,7 +218,7 @@ export function EditEmployeePage() {
   // defaultValues — Role empty, Finance/CPS role reading "No access" — and a
   // Radix Select whose value arrives after mount keeps showing that stale
   // display. Anyone who then hit Save was submitting the placeholder values.
-  if (isLoading || modulesLoading) {
+  if (isLoading || modulesLoading || sitesLoading) {
     return (
       <div className="min-h-screen bg-amber-50 flex items-center justify-center">
         <div className="text-stone-400 text-sm animate-pulse">Loading...</div>
@@ -322,6 +352,31 @@ export function EditEmployeePage() {
                 )}
               />
               <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Site / Posting</Label>
+              <Controller
+                name="site_id"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Where they report" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not set (leave unchanged)</SelectItem>
+                      {(sites ?? []).map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-stone-400">
+                Updates their imprest site and attendance home site together.
+                {employee?.department ? ` Currently: ${employee.department}.` : ''}
+              </p>
             </div>
 
             {/* System Access & Roles — Hub-authoritative; synced to Finance/CPS on save */}

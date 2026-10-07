@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
@@ -23,6 +23,8 @@ const schema = z.object({
   designation: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
+  // hr.sites id. 'none' = leave unset, which keeps the old Head Office fallback.
+  site_id: z.string(),
   finance_role: z.string(),
   finance_active: z.boolean(),
   finance_link_email: z.string().optional(),
@@ -63,6 +65,7 @@ export function AddEmployeePage() {
     defaultValues: {
       role: 'site_engineer',
       staff_type: 'site',
+      site_id: 'none',
       finance_role: 'none', finance_active: true, finance_link_email: '',
       cps_role: 'none', cps_active: true, cps_link_email: '',
       snag_viewer: false, snag_owner: false, snag_notify: false,
@@ -70,6 +73,17 @@ export function AddEmployeePage() {
         module_id: m.id,
         enabled: ROLE_DEFAULT_MODULES['site_engineer'].includes(m.id),
       })),
+    },
+  })
+
+  // Posting pick-list. Comes from hr.sites via a SECURITY DEFINER RPC because
+  // this client is bound to `public` and hr.* has RLS on.
+  const { data: sites = [] } = useQuery({
+    queryKey: ['attendance-sites'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('attendance_sites')
+      if (error) throw error
+      return (data ?? []) as { id: string; name: string }[]
     },
   })
 
@@ -85,6 +99,8 @@ export function AddEmployeePage() {
 
   const addEmployeeMutation = useMutation({
     mutationFn: async (data: FormData) => {
+      const site = data.site_id === 'none' ? null : sites.find(s => s.id === data.site_id) ?? null
+
       const { data: result, error } = await supabase.functions.invoke('admin-create-user', {
         body: {
           name: data.name,
@@ -92,6 +108,10 @@ export function AddEmployeePage() {
           phone: data.phone || null,
           designation: data.designation || null,
           role: data.role,
+          // Sent here as well as in provision below: sync_module_access reads
+          // department when it first creates the finance row, so without it the
+          // imprest site is stamped 'Head Office' before anything can fix it.
+          department: site?.name ?? null,
         },
       })
       if (error) throw error
@@ -119,6 +139,17 @@ export function AddEmployeePage() {
         snag_notify: data.snag_notify,
       }).eq('id', created.employee.id)
       await supabase.rpc('sync_employee_systems', { p_employee_id: created.employee.id })
+
+      // Posting + attendance profile. Runs last because it reads staff_type,
+      // which the update above has just written, to derive office_team. Without
+      // this the person has no hr.employee_profile row at all: no office/site
+      // classification and no home site to geofence against.
+      const { error: provErr } = await supabase.rpc('provision_employee_attendance', {
+        p_employee_id: created.employee.id,
+        p_site_name: site?.name ?? null,
+        p_home_site_id: site?.id ?? null,
+      })
+      if (provErr) throw provErr
 
       return created
     },
@@ -304,6 +335,31 @@ export function AddEmployeePage() {
                 )}
               />
               <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Site / Posting</Label>
+              <Controller
+                name="site_id"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Where they report" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not set (defaults to Head Office)</SelectItem>
+                      {sites.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-stone-400">
+                Sets their imprest site and their attendance home site. Missing from the list?
+                Add it under Attendance Setup &rarr; Geofence Sites first.
+              </p>
             </div>
 
             {/* System Access & Roles — Hub-authoritative; synced to Finance/CPS on save */}
