@@ -12,6 +12,7 @@ import { Label } from '../../components/ui/label'
 import { Switch } from '../../components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
 import { ArrowLeft, Copy, Send, CheckCircle } from 'lucide-react'
+import { edgeFunctionError } from '../../lib/edgeFunctionError'
 import { MODULE_REGISTRY } from '../../config/modules'
 import { ROLE_LABELS, ROLE_DEFAULT_MODULES } from '../../config/roles'
 import type { RoleId, Employee } from '../../types'
@@ -114,7 +115,9 @@ export function AddEmployeePage() {
           department: site?.name ?? null,
         },
       })
-      if (error) throw error
+      // A refusal (duplicate email, not an admin) arrives as a non-2xx, which
+      // invoke() reports with a generic message — recover what the function said.
+      if (error) throw await edgeFunctionError(error, 'Failed to create employee')
       if (result.error) throw new Error(result.error)
       const created = result as { employee: Employee; temp_password: string | null; linked_existing: boolean }
 
@@ -171,14 +174,14 @@ export function AddEmployeePage() {
           channels: ['whatsapp'],
         },
       })
-      if (error) throw error
+      if (error) throw await edgeFunctionError(error, 'Failed to send onboarding message')
       await supabase
         .from('employees')
         .update({ onboarded_at: new Date().toISOString() })
         .eq('id', createdEmployee.id)
     },
     onSuccess: () => toast.success('Onboarding message sent via WhatsApp'),
-    onError: () => toast.error('Failed to send onboarding message'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to send onboarding message'),
   })
 
   const copyPassword = () => {

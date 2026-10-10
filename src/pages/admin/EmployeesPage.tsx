@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
+import { edgeFunctionError } from '../../lib/edgeFunctionError'
 import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -37,7 +38,9 @@ export function EmployeesPage() {
       const { data, error } = await supabase.functions.invoke('send-onboarding', {
         body: { employee_id: employee.id, channels: ['whatsapp'] },
       })
-      if (error) throw error
+      // Non-2xx lands here with data null, so the server's reason is only in
+      // the response body — without this the toast says nothing useful.
+      if (error) throw await edgeFunctionError(error, 'Failed to send onboarding')
       if (data?.error) throw new Error(data.error)
       return data
     },
