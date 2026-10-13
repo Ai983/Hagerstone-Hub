@@ -15,7 +15,8 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../../components/ui/table'
-import { FolderPlus, Edit, Tag, ArrowLeft, Plus, X } from 'lucide-react'
+import { FolderPlus, Edit, Tag, ArrowLeft, Plus, X, MapPinPlus } from 'lucide-react'
+import { AddSiteDialog } from '../../components/admin/AddSiteDialog'
 import type { Project, ProjectAlias, ProjectCategory } from '../../types'
 
 const CATEGORY_LABELS: Record<ProjectCategory, string> = {
@@ -56,6 +57,7 @@ export function ProjectsPage() {
   // alias dialog
   const [aliasFor, setAliasFor] = useState<Project | null>(null)
   const [newAlias, setNewAlias] = useState('')
+  const [addSiteOpen, setAddSiteOpen] = useState(false)
 
 
   const { data: projects = [], isLoading } = useQuery({
@@ -195,9 +197,14 @@ export function ProjectsPage() {
             <span className="text-stone-300">|</span>
             <h1 className="font-semibold text-stone-800">Project Management</h1>
           </div>
-          <Button onClick={openAdd} className="bg-amber-800 hover:bg-amber-700 text-sm">
-            <FolderPlus size={14} className="mr-2" /> Add Project
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setAddSiteOpen(true)} className="bg-amber-800 hover:bg-amber-700 text-sm">
+              <MapPinPlus size={14} className="mr-2" /> Add Site (all systems)
+            </Button>
+            <Button onClick={openAdd} variant="outline" className="text-sm">
+              <FolderPlus size={14} className="mr-2" /> Add Project only
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -327,6 +334,12 @@ export function ProjectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AddSiteDialog
+        open={addSiteOpen}
+        onOpenChange={setAddSiteOpen}
+        onCreated={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
+      />
 
       {/* Aliases dialog */}
       <Dialog open={!!aliasFor} onOpenChange={(o) => { if (!o) setAliasFor(null) }}>

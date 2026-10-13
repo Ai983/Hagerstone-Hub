@@ -10,7 +10,8 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
-import { ArrowLeft, Copy, Send, CheckCircle, AlertTriangle, Circle } from 'lucide-react'
+import { ArrowLeft, Copy, Send, CheckCircle, AlertTriangle, Circle, MapPinPlus } from 'lucide-react'
+import { AddSiteDialog } from '../../components/admin/AddSiteDialog'
 import { edgeFunctionError } from '../../lib/edgeFunctionError'
 import { MODULE_REGISTRY } from '../../config/modules'
 import { ROLE_LABELS, ROLE_DEFAULT_MODULES } from '../../config/roles'
@@ -56,6 +57,7 @@ export function AddEmployeePage() {
   const [createdTempPassword, setCreatedTempPassword] = useState<string | null>(null)
   const [linkedExisting, setLinkedExisting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [addSiteOpen, setAddSiteOpen] = useState(false)
 
   const { register, handleSubmit, control, setValue, watch, formState: { errors, submitCount } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -76,7 +78,7 @@ export function AddEmployeePage() {
 
   // Posting pick-list. Comes from hr.sites via a SECURITY DEFINER RPC because
   // this client is bound to `public` and hr.* has RLS on.
-  const { data: sites = [] } = useQuery({
+  const { data: sites = [], refetch: refetchSites } = useQuery({
     queryKey: ['attendance-sites'],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('attendance_sites')
@@ -356,7 +358,12 @@ export function AddEmployeePage() {
 
           {/* Step 2 */}
           <section className="bg-white rounded-xl border border-gray-100 p-6 space-y-2">
-            <h2 className="font-medium text-stone-700 text-sm">2. Which site are they posted at?</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-medium text-stone-700 text-sm">2. Which site are they posted at?</h2>
+              <Button type="button" size="sm" variant="outline" onClick={() => setAddSiteOpen(true)}>
+                <MapPinPlus size={14} className="mr-1" /> Add new site
+              </Button>
+            </div>
             <Controller name="site_id" control={control} render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
                 <SelectTrigger className={errors.site_id ? 'border-red-400 ring-1 ring-red-300' : ''}>
@@ -370,7 +377,16 @@ export function AddEmployeePage() {
             )} />
             {errors.site_id
               ? <p className="text-xs text-red-500">{errors.site_id.message}</p>
-              : <p className="text-xs text-stone-400">Their imprest is filed under this site and attendance is checked against its location. Site missing? Add it under Attendance Setup → Geofence Sites first.</p>}
+              : <p className="text-xs text-stone-400">Their imprest is filed under this site and attendance is checked against its location. Site not in the list? Click <b>Add new site</b>.</p>}
+            <AddSiteDialog
+              open={addSiteOpen}
+              onOpenChange={setAddSiteOpen}
+              onCreated={async site => {
+                await refetchSites()
+                setValue('site_id', site.site_id, { shouldValidate: true })
+                queryClient.invalidateQueries({ queryKey: ['projects'] })
+              }}
+            />
           </section>
 
           {/* Step 3 */}
