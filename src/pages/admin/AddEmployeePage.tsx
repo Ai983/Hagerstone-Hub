@@ -9,49 +9,45 @@ import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import { Switch } from '../../components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
-import { ArrowLeft, Copy, Send, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Copy, Send, CheckCircle, AlertTriangle, Circle } from 'lucide-react'
 import { edgeFunctionError } from '../../lib/edgeFunctionError'
 import { MODULE_REGISTRY } from '../../config/modules'
 import { ROLE_LABELS, ROLE_DEFAULT_MODULES } from '../../config/roles'
 import type { RoleId, Employee } from '../../types'
 
+// Onboarding from the UI covers the three things a new hire normally needs:
+// Expense & Imprest (finance employee), Procurement (requestor / procurement
+// head) and Attendance. Every other finance/CPS role, snags etc. is granted
+// from Edit Employee or the backend — keeping them off this form is deliberate,
+// because a half-filled role (e.g. Finance on with no role) silently suspends
+// the account downstream.
+const CORE_MODULES = ['finance_employee', 'cps', 'attendance'] as const
+
 const schema = z.object({
-  name: z.string().min(2, 'Name is required'),
-  email: z.string().email('Enter a valid email'),
-  phone: z.string().optional(),
+  name: z.string().trim().min(2, 'Enter the full name'),
+  email: z.string().trim().email('Enter a valid email'),
+  phone: z.string().trim().regex(/^\+?[0-9 ]{10,15}$/, 'Enter a 10-digit mobile number'),
   designation: z.string().optional(),
   role: z.enum(['admin', 'management', 'procurement', 'finance', 'hr', 'project_manager', 'site_engineer', 'ai', 'mis', 'design', 'ea', 'sales', 'crm', 'founder']),
   staff_type: z.enum(['office', 'site', 'both']),
-  // hr.sites id. 'none' = leave unset, which keeps the old Head Office fallback.
   site_id: z.string(),
-  finance_role: z.string(),
-  finance_active: z.boolean(),
-  finance_link_email: z.string().optional(),
-  cps_role: z.string(),
-  cps_active: z.boolean(),
-  cps_link_email: z.string().optional(),
-  snag_viewer: z.boolean(),
-  snag_owner: z.boolean(),
-  snag_notify: z.boolean(),
-  module_access: z.array(z.object({
-    module_id: z.string(),
-    enabled: z.boolean(),
-  })),
+  expense: z.boolean(),
+  procurement: z.boolean(),
+  cps_role: z.enum(['requestor', 'procurement_head']),
+  attendance: z.boolean(),
+}).superRefine((d, ctx) => {
+  if ((d.expense || d.attendance) && d.site_id === 'none') {
+    ctx.addIssue({
+      code: 'custom', path: ['site_id'],
+      message: 'Pick a site. Imprest is filed under it and attendance is geofenced to it.',
+    })
+  }
 })
 
 type FormData = z.infer<typeof schema>
 
-// 'none' = no access (Radix Select disallows empty value); mapped to null on save.
-const FINANCE_ROLE_OPTS: [string, string][] = [
-  ['none', 'No access'], ['employee', 'Employee'], ['approver_s1', 'S1 approver'], ['approver_s2', 'S2 approver'],
-  ['finance', 'Finance'], ['manager', 'Manager'], ['head', 'Head'], ['founder', 'Founder'],
-]
-const CPS_ROLE_OPTS: [string, string][] = [
-  ['none', 'No access'], ['requestor', 'Requestor'], ['procurement_head', 'Procurement Head'], ['management', 'Management'],
-  ['accounts_team', 'Accounts Team'], ['design_team', 'Design Team'], ['it_head', 'IT Head'], ['vendor_registrar', 'Vendor Registration'],
-]
+type Check = { ok: boolean; warn?: boolean; text: string }
 
 export function AddEmployeePage() {
   const navigate = useNavigate()
@@ -61,21 +57,22 @@ export function AddEmployeePage() {
   const [linkedExisting, setLinkedExisting] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, control, setValue, watch, formState: { errors, submitCount } } = useForm<FormData>({
     resolver: zodResolver(schema),
+    mode: 'onChange',
     defaultValues: {
+      name: '', email: '', phone: '', designation: '',
       role: 'site_engineer',
       staff_type: 'site',
       site_id: 'none',
-      finance_role: 'none', finance_active: true, finance_link_email: '',
-      cps_role: 'none', cps_active: true, cps_link_email: '',
-      snag_viewer: false, snag_owner: false, snag_notify: false,
-      module_access: MODULE_REGISTRY.map(m => ({
-        module_id: m.id,
-        enabled: ROLE_DEFAULT_MODULES['site_engineer'].includes(m.id),
-      })),
+      expense: true,
+      procurement: true,
+      cps_role: 'requestor',
+      attendance: true,
     },
   })
+
+  const v = watch()
 
   // Posting pick-list. Comes from hr.sites via a SECURITY DEFINER RPC because
   // this client is bound to `public` and hr.* has RLS on.
@@ -87,16 +84,32 @@ export function AddEmployeePage() {
       return (data ?? []) as { id: string; name: string }[]
     },
   })
+  const siteName = sites.find(s => s.id === v.site_id)?.name
 
   const handleRoleChange = (role: RoleId) => {
     setValue('role', role)
     setValue('staff_type', role === 'site_engineer' ? 'site' : 'office')
-    const defaults = ROLE_DEFAULT_MODULES[role]
-    setValue('module_access', MODULE_REGISTRY.map(m => ({
-      module_id: m.id,
-      enabled: defaults.includes(m.id),
-    })))
   }
+
+  // Live checklist shown beside the submit button, so the admin sees exactly
+  // what the person will and won't be able to do before creating them.
+  const checks: Check[] = [
+    { ok: !!v.name?.trim() && !!v.email?.trim() && !!v.phone?.trim(), text: 'Name, email and phone filled' },
+    v.expense || v.attendance
+      ? { ok: v.site_id !== 'none', text: siteName ? `Site: ${siteName}` : 'Site not selected — required for imprest & attendance' }
+      : { ok: true, warn: v.site_id === 'none', text: siteName ? `Site: ${siteName}` : 'No site (will default to Head Office)' },
+    v.expense
+      ? { ok: true, text: 'Can file expenses & imprest (Employee)' }
+      : { ok: true, warn: true, text: 'Will NOT be able to log in to the Expense app' },
+    v.procurement
+      ? { ok: true, text: `Can use Procurement as ${v.cps_role === 'procurement_head' ? 'Procurement Head' : 'Requestor'}` }
+      : { ok: true, warn: true, text: 'No Procurement (CPS) access' },
+    v.attendance
+      ? { ok: v.site_id !== 'none', text: siteName ? `Attendance marked at ${siteName}` : 'Attendance needs a site' }
+      : { ok: true, warn: true, text: 'Will NOT be able to mark attendance' },
+    { ok: true, warn: v.role === 'site_engineer' && v.staff_type === 'office', text: `Staff type: ${v.staff_type}` },
+  ]
+  const blocking = checks.filter(c => !c.ok).length
 
   const addEmployeeMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -104,55 +117,60 @@ export function AddEmployeePage() {
 
       const { data: result, error } = await supabase.functions.invoke('admin-create-user', {
         body: {
-          name: data.name,
-          email: data.email,
-          phone: data.phone || null,
+          name: data.name.trim(),
+          email: data.email.trim().toLowerCase(),
+          phone: data.phone.replace(/\s/g, ''),
           designation: data.designation || null,
           role: data.role,
-          // Sent here as well as in provision below: sync_module_access reads
-          // department when it first creates the finance row, so without it the
-          // imprest site is stamped 'Head Office' before anything can fix it.
+          // sync_module_access reads department when it first creates the finance
+          // row, so without it the imprest site is stamped 'Head Office'.
           department: site?.name ?? null,
         },
       })
-      // A refusal (duplicate email, not an admin) arrives as a non-2xx, which
-      // invoke() reports with a generic message — recover what the function said.
       if (error) throw await edgeFunctionError(error, 'Failed to create employee')
       if (result.error) throw new Error(result.error)
       const created = result as { employee: Employee; temp_password: string | null; linked_existing: boolean }
 
-      // Provision module access + cross-schema profile rows under the shared identity.
+      // Core modules come from the three switches; anything else keeps the role default.
+      const enabledCore: Record<string, boolean> = {
+        finance_employee: data.expense,
+        cps: data.procurement,
+        attendance: data.attendance,
+      }
+      const defaults = ROLE_DEFAULT_MODULES[data.role]
+      const modules = MODULE_REGISTRY.map(m => ({
+        module_id: m.id,
+        enabled: (CORE_MODULES as readonly string[]).includes(m.id) ? enabledCore[m.id] : defaults.includes(m.id),
+      }))
+
       const { error: syncError } = await supabase.rpc('sync_module_access', {
         p_employee_id: created.employee.id,
-        p_modules: data.module_access.map(m => ({ module_id: m.module_id, enabled: m.enabled })),
+        p_modules: modules,
       })
-      if (syncError) throw syncError
+      if (syncError) throw new Error(`Access setup failed: ${syncError.message}`)
 
-      // Office/Site classification + Hub-authoritative per-system roles
-      await supabase.from('employees').update({
+      // Role and active flag always travel together, so Finance/CPS can never
+      // end up "on" with no role (which the sync treats as suspended).
+      const { error: updErr } = await supabase.from('employees').update({
         staff_type: data.staff_type,
-        finance_role: data.finance_role === 'none' ? null : data.finance_role,
-        finance_active: data.finance_active,
-        finance_link_email: data.finance_link_email || null,
-        cps_role: data.cps_role === 'none' ? null : data.cps_role,
-        cps_active: data.cps_active,
-        cps_link_email: data.cps_link_email || null,
-        snag_viewer: data.snag_viewer,
-        snag_owner: data.snag_owner,
-        snag_notify: data.snag_notify,
+        finance_role: data.expense ? 'employee' : null,
+        finance_active: data.expense,
+        cps_role: data.procurement ? data.cps_role : null,
+        cps_active: data.procurement,
+        snag_viewer: false, snag_owner: false, snag_notify: false,
       }).eq('id', created.employee.id)
-      await supabase.rpc('sync_employee_systems', { p_employee_id: created.employee.id })
+      if (updErr) throw new Error(`Saving roles failed: ${updErr.message}`)
 
-      // Posting + attendance profile. Runs last because it reads staff_type,
-      // which the update above has just written, to derive office_team. Without
-      // this the person has no hr.employee_profile row at all: no office/site
-      // classification and no home site to geofence against.
+      const { error: sysErr } = await supabase.rpc('sync_employee_systems', { p_employee_id: created.employee.id })
+      if (sysErr) throw new Error(`Expense/Procurement sync failed: ${sysErr.message}`)
+
+      // Posting + attendance profile. Runs last because it reads staff_type.
       const { error: provErr } = await supabase.rpc('provision_employee_attendance', {
         p_employee_id: created.employee.id,
         p_site_name: site?.name ?? null,
         p_home_site_id: site?.id ?? null,
       })
-      if (provErr) throw provErr
+      if (provErr) throw new Error(`Attendance setup failed: ${provErr.message}`)
 
       return created
     },
@@ -162,7 +180,7 @@ export function AddEmployeePage() {
       setLinkedExisting(linked_existing)
       queryClient.invalidateQueries({ queryKey: ['employees'] })
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to create employee'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to create employee', { duration: 10000 }),
   })
 
   const sendOnboardingMutation = useMutation({
@@ -200,7 +218,16 @@ export function AddEmployeePage() {
             <CheckCircle className="text-emerald-600" size={32} />
           </div>
           <h2 className="text-lg font-semibold text-stone-800 mb-1">Employee created!</h2>
-          <p className="text-sm text-stone-500 mb-6">{createdEmployee.name} has been added to the Hub.</p>
+          <p className="text-sm text-stone-500 mb-4">{createdEmployee.name} has been added to the Hub.</p>
+
+          <ul className="text-left text-xs text-stone-600 bg-stone-50 rounded-xl p-3 mb-6 space-y-1">
+            {checks.slice(1, 5).map((c, i) => (
+              <li key={i} className="flex gap-2">
+                {c.warn ? <AlertTriangle size={14} className="text-amber-500 shrink-0" /> : <CheckCircle size={14} className="text-emerald-500 shrink-0" />}
+                {c.text}
+              </li>
+            ))}
+          </ul>
 
           {linkedExisting ? (
             <div className="bg-emerald-50 rounded-xl p-4 mb-6 text-left">
@@ -244,6 +271,23 @@ export function AddEmployeePage() {
     )
   }
 
+  const AccessCard = ({ name, title, hint, children }: {
+    name: 'expense' | 'procurement' | 'attendance'; title: string; hint: string; children?: React.ReactNode
+  }) => (
+    <Controller name={name} control={control} render={({ field }) => (
+      <div className={`rounded-xl border-2 p-4 transition-colors ${field.value ? 'border-amber-600 bg-amber-50/60' : 'border-stone-200 bg-white'}`}>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" className="mt-1 h-5 w-5 accent-amber-700" checked={field.value} onChange={e => field.onChange(e.target.checked)} />
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-stone-800">{title}</div>
+            <div className="text-xs text-stone-500">{hint}</div>
+          </div>
+        </label>
+        {field.value && children && <div className="mt-3 pl-8">{children}</div>}
+      </div>
+    )} />
+  )
+
   return (
     <div className="min-h-screen bg-amber-50">
       <header className="bg-white border-b border-gray-100 px-6 py-4">
@@ -256,227 +300,121 @@ export function AddEmployeePage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 py-8">
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
         <form onSubmit={handleSubmit(d => addEmployeeMutation.mutate(d))} className="space-y-6">
-          <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-            <h2 className="font-medium text-stone-700 text-sm">Personal Details</h2>
-
+          {/* Step 1 */}
+          <section className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
+            <h2 className="font-medium text-stone-700 text-sm">1. Who is joining?</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Full Name *</Label>
+                <Label>Full name *</Label>
                 <Input placeholder="Ravi Sharma" {...register('name')} />
                 {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Email *</Label>
-                <Input type="email" placeholder="ravi@hagerstone.com" {...register('email')} />
+                <Label>Email * <span className="text-stone-400 font-normal">(used to log in)</span></Label>
+                <Input type="email" placeholder="ravi@gmail.com" {...register('email')} />
                 {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Phone</Label>
-                <Input placeholder="+91 98765 43210" {...register('phone')} />
+                <Label>Mobile * <span className="text-stone-400 font-normal">(WhatsApp)</span></Label>
+                <Input placeholder="98765 43210" {...register('phone')} />
+                {errors.phone && <p className="text-xs text-red-500">{errors.phone.message}</p>}
               </div>
-              <div className="space-y-1.5">
-                <Label>Employee Code</Label>
-                <Input placeholder="Auto-assigned (HAG-XXX)" disabled className="bg-gray-50 text-stone-400" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Designation</Label>
                 <Input placeholder="Site Engineer" {...register('designation')} />
               </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-            <h2 className="font-medium text-stone-700 text-sm">Role & Access</h2>
-
-            <div className="space-y-1.5">
-              <Label>Role *</Label>
-              <Controller
-                name="role"
-                control={control}
-                render={({ field }) => (
-                  <Select
-                    value={field.value}
-                    onValueChange={(val) => handleRoleChange(val as RoleId)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
+              <div className="space-y-1.5">
+                <Label>Hub role *</Label>
+                <Controller name="role" control={control} render={({ field }) => (
+                  <Select value={field.value} onValueChange={val => handleRoleChange(val as RoleId)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Object.entries(ROLE_LABELS).map(([id, label]) => (
                         <SelectItem key={id} value={id}>{label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                )}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Staff type *</Label>
-              <Controller
-                name="staff_type"
-                control={control}
-                render={({ field }) => (
+                )} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Works at *</Label>
+                <Controller name="staff_type" control={control} render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Office / Site / Both" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="office">Office staff</SelectItem>
-                      <SelectItem value="site">Site staff</SelectItem>
+                      <SelectItem value="site">Site</SelectItem>
+                      <SelectItem value="office">Office</SelectItem>
                       <SelectItem value="both">Both</SelectItem>
                     </SelectContent>
                   </Select>
-                )}
-              />
-              <p className="text-xs text-stone-400">Used for follow-up frequency (office = daily, site = weekly).</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Site / Posting</Label>
-              <Controller
-                name="site_id"
-                control={control}
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Where they report" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Not set (defaults to Head Office)</SelectItem>
-                      {sites.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <p className="text-xs text-stone-400">
-                Sets their imprest site and their attendance home site. Missing from the list?
-                Add it under Attendance Setup &rarr; Geofence Sites first.
-              </p>
-            </div>
-
-            {/* System Access & Roles — Hub-authoritative; synced to Finance/CPS on save */}
-            <div className="space-y-3 border-t border-stone-100 pt-4">
-              <Label className="text-sm">System Access &amp; Roles</Label>
-              <p className="text-xs text-stone-400">Finance/CPS roles apply once that module is enabled below (and the system account exists).</p>
-
-              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-stone-700">💰 Finance</span>
-                  <Controller name="finance_active" control={control} render={({ field }) => (
-                    <label className="flex items-center gap-2 text-xs text-stone-500">
-                      {field.value ? 'Active' : 'Blocked'}
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </label>
-                  )} />
-                </div>
-                <Controller name="finance_role" control={control} render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
-                    <SelectContent>
-                      {FINANCE_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
                 )} />
-                <Input placeholder="Linked Finance email (only if different)" {...register('finance_link_email')} className="text-xs" />
               </div>
+            </div>
+          </section>
 
-              <div className="rounded-lg border border-stone-100 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-stone-700">📦 CPS (Procurement)</span>
-                  <Controller name="cps_active" control={control} render={({ field }) => (
-                    <label className="flex items-center gap-2 text-xs text-stone-500">
-                      {field.value ? 'Active' : 'Blocked'}
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </label>
-                  )} />
+          {/* Step 2 */}
+          <section className="bg-white rounded-xl border border-gray-100 p-6 space-y-2">
+            <h2 className="font-medium text-stone-700 text-sm">2. Which site are they posted at?</h2>
+            <Controller name="site_id" control={control} render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger className={errors.site_id ? 'border-red-400 ring-1 ring-red-300' : ''}>
+                  <SelectValue placeholder="Select site" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— Select site —</SelectItem>
+                  {sites.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )} />
+            {errors.site_id
+              ? <p className="text-xs text-red-500">{errors.site_id.message}</p>
+              : <p className="text-xs text-stone-400">Their imprest is filed under this site and attendance is checked against its location. Site missing? Add it under Attendance Setup → Geofence Sites first.</p>}
+          </section>
+
+          {/* Step 3 */}
+          <section className="bg-white rounded-xl border border-gray-100 p-6 space-y-3">
+            <h2 className="font-medium text-stone-700 text-sm">3. What should they be able to do?</h2>
+            <AccessCard name="expense" title="💰 Expenses & Imprest" hint="Log in to the Expense app, file expenses and request imprest." />
+            <AccessCard name="procurement" title="📦 Procurement" hint="Raise purchase requests in CPS.">
+              <Controller name="cps_role" control={control} render={({ field }) => (
+                <div className="flex flex-wrap gap-2">
+                  {([['requestor', 'Requestor (site engineer)'], ['procurement_head', 'Procurement Head']] as const).map(([val, label]) => (
+                    <button type="button" key={val} onClick={() => field.onChange(val)}
+                      className={`px-3 py-1.5 rounded-full text-xs border ${field.value === val ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-stone-600 border-stone-300'}`}>
+                      {label}
+                    </button>
+                  ))}
                 </div>
-                <Controller name="cps_role" control={control} render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="No access" /></SelectTrigger>
-                    <SelectContent>
-                      {CPS_ROLE_OPTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )} />
-                <Input placeholder="Linked CPS email (only if different)" {...register('cps_link_email')} className="text-xs" />
-              </div>
-            </div>
+              )} />
+            </AccessCard>
+            <AccessCard name="attendance" title="📍 Attendance" hint="Mark daily attendance from their phone at the selected site." />
+            <p className="text-xs text-stone-400">Approver, finance team, admin and other roles are set later from Edit Employee.</p>
+          </section>
 
-            <div className="space-y-3">
-              <Label>Snags</Label>
-              <p className="text-xs text-stone-400">
-                Post-handover client defect reports. Off by default — most people
-                don't need it, and it can be granted later from Edit Employee.
-              </p>
-              <div className="space-y-2">
-                {([
-                  ['snag_viewer', 'View snags', 'Can open the Snags page (read-only).'],
-                  ['snag_owner', 'Manage snags', 'Can update status, add notes and close. Implies view.'],
-                  ['snag_notify', 'WhatsApp alerts', 'Gets a WhatsApp when a client submits a new snag.'],
-                ] as const).map(([name, label, hint]) => (
-                  <Controller key={name} name={name} control={control} render={({ field }) => (
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
-                      <div>
-                        <div className="text-sm font-medium text-stone-700">{label}</div>
-                        <div className="text-xs text-stone-500">{hint}</div>
-                      </div>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </div>
-                  )} />
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label>Module Access</Label>
-              <p className="text-xs text-stone-400">
-                Pre-filled based on role. Toggle to override.
-              </p>
-              <Controller
-                name="module_access"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-2">
-                    {MODULE_REGISTRY.map((module, idx) => (
-                      <div key={module.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">{module.icon}</span>
-                          <div>
-                            <div className="text-sm font-medium text-stone-700">{module.name}</div>
-                          </div>
-                        </div>
-                        <Switch
-                          checked={field.value[idx]?.enabled ?? false}
-                          onCheckedChange={(checked) => {
-                            const updated = [...field.value]
-                            updated[idx] = { ...updated[idx], enabled: checked }
-                            field.onChange(updated)
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              />
-            </div>
-          </div>
+          {/* Live summary */}
+          <section className={`rounded-xl border p-4 ${blocking ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+            <h3 className="text-sm font-medium mb-2 text-stone-700">
+              {blocking ? `Fix ${blocking} thing${blocking > 1 ? 's' : ''} before creating` : 'Ready to create'}
+            </h3>
+            <ul className="space-y-1 text-xs">
+              {checks.map((c, i) => (
+                <li key={i} className={`flex gap-2 ${!c.ok ? 'text-red-600 font-medium' : c.warn ? 'text-amber-700' : 'text-stone-600'}`}>
+                  {!c.ok ? <Circle size={14} className="shrink-0" />
+                    : c.warn ? <AlertTriangle size={14} className="shrink-0" />
+                    : <CheckCircle size={14} className="text-emerald-500 shrink-0" />}
+                  {c.text}
+                </li>
+              ))}
+            </ul>
+          </section>
 
           <div className="flex gap-3">
             <Button
               type="submit"
               className="bg-amber-800 hover:bg-amber-700 flex-1"
-              disabled={addEmployeeMutation.isPending}
+              disabled={addEmployeeMutation.isPending || (submitCount > 0 && blocking > 0)}
             >
               {addEmployeeMutation.isPending ? 'Creating...' : 'Create Employee'}
             </Button>
